@@ -1,0 +1,283 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Duty Manager â€” Patient Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700;750;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+/* V4 shared Theatre Flow content boundary. */
+.theatre .theatre-body{width:calc(100% - 36px)!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;padding-left:0!important;padding-right:0!important}
+.theatre .pipeline,.theatre .theatre-summary,.theatre .empty-note{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important}
+.theatre .theatre-summary{padding-left:0!important;padding-right:0!important}
+.theatre .empty-note{box-sizing:border-box!important}
+@media(max-width:700px){.theatre .theatre-body{width:100%!important;max-width:none!important;padding-left:0!important;padding-right:0!important}}
+
+/* Final scoped Theatre Flow layout correction. */
+.theatre .pipeline{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(76px,120px) minmax(0,1fr)!important;align-items:center!important;gap:16px!important;width:100%!important;max-width:none!important}
+.theatre .pipeline-node{width:100%!important;min-width:0!important;align-self:stretch!important}
+.theatre .pipeline-arrow{position:relative!important;display:block!important;justify-self:stretch!important;align-self:center!important;width:100%!important;height:24px!important;margin:0!important;background:transparent!important;font-size:0!important;line-height:0!important}
+.theatre .pipeline-arrow:before{display:block!important;content:""!important;position:absolute!important;left:0!important;right:10px!important;top:50%!important;height:1px!important;background:var(--copper)!important;opacity:.72!important}
+.theatre .pipeline-arrow:after{display:block!important;content:""!important;position:absolute!important;right:1px!important;top:50%!important;width:7px!important;height:7px!important;border-top:1px solid var(--copper)!important;border-right:1px solid var(--copper)!important;background:transparent!important;transform:translateY(-50%) rotate(45deg)!important}
+.theatre .pipeline-arrow i{display:none!important}
+@media(max-width:700px){.theatre .pipeline{grid-template-columns:1fr!important;gap:8px!important}.theatre .pipeline-arrow{width:min(170px,72%)!important;justify-self:center!important;height:24px!important;transform:none!important}}
+.flow-modal-close{float:right;border:0;background:transparent;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0 2px}.flow-modal-close:hover{color:var(--ink)}.flow-modal-close:focus-visible{outline:3px solid #dfa56e;outline-offset:2px;border-radius:4px}.flow-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}.flow-form-grid label{margin:0}.flow-form-grid input,.flow-form-grid select{width:100%;margin-top:6px;height:36px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px}.flow-form-section{grid-column:1/-1;margin:4px 0 -2px;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.flow-modal .modal-actions{margin-top:20px}.flow-modal-feedback{grid-column:1/-1;color:var(--red);font-size:11px;min-height:0}.flow-modal-feedback:empty{display:none}
+@media(max-width:520px){.flow-form-grid{grid-template-columns:1fr}.flow-form-section{grid-column:auto}.flow-modal-feedback{grid-column:auto}}
+</style>
+<style>
+/* V3 authoritative theatre track: equal stage zones and independently centred connector. */
+.theatre .pipeline{grid-template-columns:minmax(150px,1fr) minmax(120px,180px) minmax(150px,1fr)!important;column-gap:18px!important;width:min(680px,100%)!important;max-width:680px!important;margin-left:auto!important;margin-right:auto!important}
+.theatre .pipeline-node{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;padding-left:12px!important;padding-right:12px!important}
+.theatre .pipeline-node small{justify-content:center!important;text-align:center!important;width:100%!important}
+.theatre .pipeline-node b{width:100%!important;text-align:center!important}
+.theatre .pipeline-arrow{width:100%!important;justify-self:stretch!important;align-self:center!important}
+@media(max-width:700px){.theatre .pipeline{grid-template-columns:1fr!important;row-gap:8px!important;width:100%!important;max-width:none!important}.theatre .pipeline-arrow{width:min(180px,72%)!important;justify-self:center!important}}
+</style>
+<style>
+:root{--green:#19352a;--green-2:#234236;--copper:#b47c52;--copper-pale:#f5e5d4;--bg:#f3eee7;--surface:#fffdfa;--ink:#18221d;--muted:#59615a;--faint:#899087;--line:#ddd4c8;--amber:#a96629;--amber-bg:#fff4e8;--red:#a6382e;--red-bg:#fae9e6;--blue:#416f8d;--blue-bg:#edf6fa;--sage:#758d79;--green-bg:#e9f0ea;--shadow:0 12px 30px rgba(38,31,23,.06);--content:1480px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 Inter,Segoe UI,Arial,sans-serif}button,input,select{font:inherit}.shell-rail{position:fixed;inset:0 auto 0 0;width:70px;background:var(--green);display:flex;flex-direction:column;align-items:center;padding:14px 12px;gap:4px;z-index:5}.dm-mark{width:42px;height:42px;border:1px solid #ffffff35;border-radius:12px;display:grid;place-items:center;color:#e9c49f;font-weight:800;margin-bottom:11px}.rail-item{position:relative;width:46px;height:46px;border:0;border-radius:10px;background:transparent;color:#c5d0c7;display:grid;place-items:center;font-size:16px;cursor:pointer}.rail-item:hover{background:#ffffff14;color:#fff}.rail-item.active{color:var(--green);background:var(--surface);box-shadow:inset 3px 0 var(--copper)}.rail-item:focus-visible,.btn:focus-visible,.inline-action:focus-visible,.edit-trigger:focus-visible,.retention-action:focus-visible{outline:3px solid #dfa56e;outline-offset:2px}.app{margin-left:70px}.app-header{height:68px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;padding:0 38px}.brandline{font-size:10px;color:var(--muted);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.context{display:flex;gap:28px}.context span{display:grid;gap:1px;text-align:right}.context small{font-size:9px;color:var(--faint);font-weight:700;letter-spacing:.06em;text-transform:uppercase}.context b{font-size:12px;font-weight:700}.main{max-width:var(--content);margin:auto;padding:28px 38px 48px}.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px}.eyebrow{font-size:10px;color:var(--copper);font-weight:800;letter-spacing:.12em;text-transform:uppercase}.page-head h1{margin:5px 0 3px;font-size:30px;letter-spacing:-.045em;line-height:1.15}.subtitle{margin:0;color:var(--muted);font-size:12px}.btn{height:40px;padding:0 15px;border:1px solid var(--copper);border-radius:9px;background:var(--copper);color:#fff;font-size:12px;font-weight:750;cursor:pointer}.btn:hover{background:#95613e}.section-label{display:flex;align-items:baseline;justify-content:space-between;margin:23px 0 10px}.section-label h2{margin:0;font-size:17px;letter-spacing:-.02em}.section-label p{margin:0;color:var(--muted);font-size:11px}.surface{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.flow-pulse{display:grid;grid-template-columns:1.15fr 2fr 1.65fr .9fr;min-height:150px;overflow:hidden}.pulse-zone{padding:18px 20px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center}.pulse-zone:last-child{border-right:0}.pulse-zone h3{margin:0;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.pulse-status{margin-top:9px;font-size:20px;font-weight:750;letter-spacing:-.03em}.pulse-status small{display:block;margin-top:5px;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:0}.status-line{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11px;color:var(--muted)}.status-line i{color:var(--sage);font-size:12px}.pulse-zone.inbound,.pulse-zone.outbound{padding-left:22px}.flow-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;margin-top:11px}.metric-pair{min-width:0}.metric-pair b{display:block;font-size:23px;line-height:1;font-variant-numeric:tabular-nums}.metric-pair span{display:block;margin-top:4px;color:var(--muted);font-size:10px}.metric-pair em{font-style:normal;color:var(--faint);font-size:10px}.pulse-zone.watch{background:#fffaf4}.watch-value{margin-top:10px;font-size:25px;font-weight:750;line-height:1}.watch-value span{font-size:11px;color:var(--muted);font-weight:600}.watch-note{margin-top:9px;color:var(--muted);font-size:10px}.flow-balance{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:10px;font-weight:650}.flow-balance i{color:var(--copper);font-size:12px}.edit-trigger{margin-left:auto;border:0;background:transparent;color:var(--copper);font-size:11px;font-weight:700;cursor:pointer;padding:2px 4px}.editable-value input{display:none;width:58px;height:28px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:0 6px;font-weight:700}.edit-mode .editable-value input{display:inline-block}.edit-mode .editable-value output{display:none}
+.movement-grid{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(360px,1fr);gap:14px}.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}.panel-head{padding:16px 18px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.panel-head h3{margin:0;font-size:15px;letter-spacing:-.01em}.panel-head small{color:var(--muted);font-size:10px}.theatre-body{padding:18px}.pipeline{display:grid;grid-template-columns:1fr 52px 1fr;align-items:center;gap:14px;padding:12px 0 17px}.pipeline-node{min-height:90px;padding:14px 16px;border:1px solid var(--line);border-top:3px solid var(--copper);border-radius:10px;background:#fffaf4}.pipeline-node.post{border-top-color:var(--sage);background:#f8fbf8}.pipeline-node small{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px;font-weight:750;letter-spacing:.04em;text-transform:uppercase}.pipeline-node small i{color:var(--copper);font-size:13px}.pipeline-node.post small i{color:var(--sage)}.pipeline-node b{display:block;margin-top:12px;font-size:28px;line-height:1;font-variant-numeric:tabular-nums}.pipeline-arrow{display:grid;place-items:center;color:var(--copper);font-size:22px}.theatre-summary{display:flex;gap:8px;flex-wrap:wrap;margin-top:3px}.exception{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:10px;color:var(--muted)}.exception strong{color:var(--ink);font-variant-numeric:tabular-nums}.exception i{color:var(--amber)}.exception.cancel i{color:var(--red)}.empty-note{display:flex;align-items:center;gap:8px;margin-top:15px;padding:10px 12px;border-left:3px solid var(--sage);background:var(--green-bg);color:var(--muted);font-size:11px}.retention-table{width:100%;border-collapse:collapse}.retention-table th{padding:11px 16px;text-align:left;color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line)}.retention-table td{padding:14px 16px;border-bottom:1px solid #eee8e1;font-size:11px;vertical-align:middle}.retention-table tr:last-child td{border-bottom:0}.retention-table td:first-child{font-weight:700;font-size:12px}.retention-table .cases{color:var(--muted);font-variant-numeric:tabular-nums}.retention-table .retained{font-weight:750;font-variant-numeric:tabular-nums}.retention-table .retained.clear{color:#356140}.retention-action{border:0;background:transparent;color:var(--copper);font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;padding:7px 2px}.retention-action:hover{text-decoration:underline;text-underline-offset:3px}.retention-foot{padding:11px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:10px}.modal-backdrop{display:none;position:fixed;inset:0;z-index:20;background:#18221d99;align-items:center;justify-content:center}.modal-backdrop.open{display:flex}.modal{width:min(480px,calc(100vw - 32px));padding:22px;background:var(--surface);border-radius:14px;box-shadow:0 25px 70px #18221d40}.modal h2{margin:0 0 5px;font-size:18px}.modal p{margin:0 0 18px;color:var(--muted);font-size:12px}.modal label{display:block;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}.modal input,.modal textarea{width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px}.modal textarea{min-height:72px;resize:vertical}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.btn.secondary{background:transparent;color:var(--green);border-color:var(--line);box-shadow:none}.btn.secondary:hover{background:var(--bg)}
+@media(max-width:1050px){.flow-pulse{grid-template-columns:1fr 1.4fr 1.2fr}.pulse-zone.watch{grid-column:1/-1;border-top:1px solid var(--line);border-right:0}.movement-grid{grid-template-columns:1fr}.retention-table{min-width:520px}.panel.retention{overflow:auto}}
+@media(max-width:700px){.shell-rail{position:static;width:100%;height:58px;flex-direction:row;padding:8px;overflow:auto}.dm-mark{display:none}.app{margin:0}.app-header{height:auto;min-height:64px;padding:12px 16px}.brandline{display:none}.context{width:100%;justify-content:space-between;gap:10px}.context span{display:grid;text-align:left}.context span:nth-child(2){display:none}.main{padding:22px 14px 36px}.page-head{align-items:flex-start;flex-direction:column;gap:14px}.page-head h1{font-size:26px}.page-head .btn{width:100%}.flow-pulse{display:block}.pulse-zone{min-height:108px;border-right:0;border-bottom:1px solid var(--line)}.pulse-zone:last-child{border-bottom:0}.flow-metrics{max-width:360px}.movement-grid{display:block}.panel{margin-bottom:12px}.pipeline{grid-template-columns:1fr;gap:8px}.pipeline-arrow{transform:rotate(90deg);height:18px}.theatre-summary{gap:6px}}
+</style>
+</head>
+<body>
+<nav class="shell-rail" aria-label="Duty Manager workflow">
+  <div class="dm-mark" aria-label="Duty Manager">DM</div>
+  <button class="rail-item" aria-label="General / Shift Identity" title="General / Shift Identity"><i class="fa-solid fa-id-card" aria-hidden="true"></i></button>
+  <button class="rail-item" aria-label="Hospital Events" title="Hospital Events"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button>
+  <button class="rail-item" aria-label="Administrative Issues" title="Administrative Issues"><i class="fa-solid fa-list-check" aria-hidden="true"></i></button>
+  <button class="rail-item active" aria-current="page" aria-label="Patient Flow / Bed Management" title="Patient Flow / Bed Management"><i class="fa-solid fa-bed-pulse" aria-hidden="true"></i></button>
+</nav>
+<div class="app">
+<header class="app-header"><div class="brandline">Duty Manager / Operations handover</div><div class="context"><span><small>Business unit</small><b>AMH</b></span><span><small>Shift + date</small><b>Morning Â· 17 Aug 2026</b></span><span><small>Duty manager</small><b>Dr. Sara Ahmed</b></span></div></header>
+<main class="main">
+  <header class="page-head"><div><div class="eyebrow">04 Â· Patient flow</div><h1>Patient flow</h1><p class="subtitle">Live census, movement, theatre flow and retention signals for the current shift.</p></div><button class="btn" id="update-flow" type="button"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Update patient flow</button></header>
+  <section class="surface flow-pulse" aria-labelledby="flow-pulse-title">
+    <div class="pulse-zone"><h3 id="flow-pulse-title">Flow status</h3><div class="pulse-status">No current flow pressure<small>Shift flow is stable</small></div><div class="status-line"><i class="fa-solid fa-user-group" aria-hidden="true"></i><span>Staff coverage</span><strong id="staff-status">Adequate</strong><button class="edit-trigger" type="button" data-edit="staff">Edit</button></div><select id="dma_StaffAdequacy" aria-label="Staff coverage" hidden><option value="778000001">Adequate</option><option value="778000000">Short</option></select></div>
+    <div class="pulse-zone inbound"><h3>Inbound</h3><div class="flow-metrics"><div class="metric-pair"><b class="editable-value"><output id="inbound-total">0</output><input id="dma_Admissions" type="number" min="0" value="0" aria-label="Total admissions"></b><span>Total admissions</span></div><div class="metric-pair"><b class="editable-value"><output id="inbound-er">0</output><input id="dma_ERAdmissions" type="number" min="0" value="0" aria-label="ER admissions"></b><span>ER admissions <em>Â· volume <output id="er-volume">0</output></em></span></div><div class="metric-pair"><b class="editable-value"><output id="inbound-opd">0</output><input id="dma_OPDAdmissions" type="number" min="0" value="0" aria-label="OPD admissions"></b><span>OPD admissions</span></div><div class="metric-pair"><b class="editable-value"><output id="er-total">0</output><input id="dma_ERVolume" type="number" min="0" value="0" aria-label="Total ER volume"></b><span>Total ER volume</span></div></div></div>
+    <div class="pulse-zone outbound"><h3>Outbound</h3><div class="flow-metrics"><div class="metric-pair"><b class="editable-value"><output id="outbound-total">0</output><input id="dma_Discharges" type="number" min="0" value="0" aria-label="Total discharges"></b><span>Total discharges</span></div><div class="metric-pair"><b class="editable-value"><output id="outbound-planned">0</output><input id="dma_PlannedDischarges" type="number" min="0" value="0" aria-label="Planned discharges"></b><span>Planned</span></div><div class="metric-pair"><b class="editable-value"><output id="outbound-unplanned">0</output><input id="dma_UnplannedDischarges" type="number" min="0" value="0" aria-label="Unplanned discharges"></b><span>Unplanned</span></div></div><div class="flow-balance"><span>Admissions</span><i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i><span>In hospital</span><i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i><span>Discharges</span><strong id="net-flow">Net flow 0</strong></div></div>
+    <div class="pulse-zone watch"><h3>Watch</h3><div class="watch-value"><output id="watch-retained">0</output> <span>DAMA retained</span></div><div class="watch-note">No retention cases recorded this shift.</div></div>
+  </section>
+  <div class="section-label"><h2>Todayâ€™s movement</h2><p>Throughput and exceptions requiring operational awareness.</p></div>
+  <section class="movement-grid">
+    <article class="panel theatre" aria-labelledby="theatre-title"><div class="panel-head"><h3 id="theatre-title"><i class="fa-solid fa-bed-pulse" style="color:var(--copper);margin-right:7px" aria-hidden="true"></i>Theatre flow</h3><small>Current shift</small></div><div class="theatre-body"><div class="pipeline"><div class="pipeline-node"><small><i class="fa-solid fa-bed-pulse" aria-hidden="true"></i>Pre-op</small><b id="or-pre">0</b></div><div class="pipeline-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right-long"></i></div><div class="pipeline-node post"><small><i class="fa-solid fa-person-walking-arrow-right" aria-hidden="true"></i>Post-op</small><b id="or-post">0</b></div></div><div class="theatre-summary"><span class="exception"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><strong id="or-total">0</strong> total cases</span><span class="exception"><i class="fa-solid fa-clock" aria-hidden="true"></i>Postponed <strong id="or-postponed">0</strong></span><span class="exception cancel"><i class="fa-solid fa-ban" aria-hidden="true"></i>Cancelled <strong id="or-cancelled">0</strong></span></div><div class="empty-note"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>No theatre activity recorded for this shift.</div><div hidden aria-hidden="true"><input id="dma_TotalORCases" type="number" value="0"><input id="dma_Preoperative" type="number" value="0"><input id="dma_Postoperative" type="number" value="0"><input id="dma_PostponedORCases" type="number" value="0"><input id="dma_CancelledORCases" type="number" value="0"></div></div></article>
+    <article class="panel retention" aria-labelledby="retention-title"><div class="panel-head"><h3 id="retention-title"><i class="fa-solid fa-user-clock" style="color:var(--amber);margin-right:7px" aria-hidden="true"></i>Retention watch</h3><small>Log only when required</small></div><table class="retention-table"><thead><tr><th>Area</th><th>Cases</th><th>Retained</th><th>Action</th></tr></thead><tbody><tr><td>ER</td><td class="cases" id="er-cases">0</td><td class="retained clear" id="er-retained">0</td><td><button class="retention-action" data-area="ER">Log patient <span aria-hidden="true">â†’</span></button></td></tr><tr><td>Inpatient</td><td class="cases" id="inp-cases">0</td><td class="retained clear" id="inp-retained">0</td><td><button class="retention-action" data-area="Inpatient">Log patient <span aria-hidden="true">â†’</span></button></td></tr><tr><td>Closed</td><td class="cases" id="closed-cases">0</td><td class="retained clear" id="closed-retained">0</td><td><button class="retention-action" data-area="Closed">Log patient <span aria-hidden="true">â†’</span></button></td></tr></tbody></table><div class="retention-foot">Retained patients require active ownership before handover.</div><div hidden aria-hidden="true"><input id="dma_ERDAMA" type="number" value="0"><input id="dma_ERDAMARetention" type="number" value="0"><input id="dma_INPDAMA" type="number" value="0"><input id="dma_INPDAMARetention" type="number" value="0"><input id="dma_ClosedDAMA" type="number" value="0"><input id="dma_ClosedDAMARetention" type="number" value="0"></div></article>
+  </section>
+</main></div>
+<div class="modal-backdrop" id="retention-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="retention-modal-title"><div class="modal"><h2 id="retention-modal-title">Log retention patient</h2><p id="retention-modal-copy">Record the patient and action for this area.</p><label for="retention-patient">Patient / MRN</label><input id="retention-patient" type="text" placeholder="Search by name or MRN"><label for="retention-reason" style="margin-top:12px">Reason</label><textarea id="retention-reason" placeholder="Reason for retention..."></textarea><div class="modal-actions"><button class="btn secondary" id="retention-cancel" type="button">Cancel</button><button class="btn" id="retention-save" type="button">Save patient</button></div></div></div>
+<div class="modal-backdrop flow-modal" id="flow-modal" role="dialog" aria-modal="true" aria-labelledby="flow-modal-title" aria-hidden="true"><div class="modal"><button class="flow-modal-close" id="flow-modal-close" type="button" aria-label="Close">&times;</button><h2 id="flow-modal-title">Update patient flow</h2><p>Update the current-shift patient flow values.</p><div class="flow-form-grid"><div class="flow-form-section">Staff coverage</div><label for="flow-staff">Staff coverage<select id="flow-staff"><option value="778000001">Adequate</option><option value="778000000">Short</option></select></label><div class="flow-form-section">Inbound</div><label for="flow-er-admissions">ER admissions<input id="flow-er-admissions" type="number" min="0" step="1"></label><label for="flow-opd-admissions">OPD admissions<input id="flow-opd-admissions" type="number" min="0" step="1"></label><label for="flow-er-volume">Total ER volume<input id="flow-er-volume" type="number" min="0" step="1"></label><div class="flow-form-section">Outbound</div><label for="flow-planned">Planned discharges<input id="flow-planned" type="number" min="0" step="1"></label><label for="flow-unplanned">Unplanned discharges<input id="flow-unplanned" type="number" min="0" step="1"></label><div class="flow-form-section">Theatre flow</div><label for="flow-or-total">Total cases<input id="flow-or-total" type="number" min="0" step="1"></label><label for="flow-pre">Pre-op<input id="flow-pre" type="number" min="0" step="1"></label><label for="flow-post">Post-op<input id="flow-post" type="number" min="0" step="1"></label><label for="flow-postponed">Postponed<input id="flow-postponed" type="number" min="0" step="1"></label><label for="flow-cancelled">Cancelled<input id="flow-cancelled" type="number" min="0" step="1"></label><div class="flow-modal-feedback" id="flow-modal-feedback" aria-live="polite"></div></div><div class="modal-actions"><button class="btn secondary" id="flow-cancel" type="button">Cancel</button><button class="btn" id="flow-save" type="button">Save context</button></div></div></div>
+<script>
+(function(){
+  var values={erAdmissions:0,opdAdmissions:0,admissions:0,erVolume:0,planned:0,unplanned:0,discharges:0,orTotal:0,pre:0,post:0,postponed:0,cancelled:0},records=[],currentArea=null,retentionTrigger=null,flowTrigger=null;
+  function by(id){return document.getElementById(id)}
+  function num(id){var e=by(id);return e?Math.max(0,Number(e.value)||0):0}
+  function set(id,value){var e=by(id);if(e)e.textContent=value}
+  function render(){
+    values.erAdmissions=num('dma_ERAdmissions');values.opdAdmissions=num('dma_OPDAdmissions');values.admissions=values.erAdmissions+values.opdAdmissions;values.erVolume=num('dma_ERVolume');values.planned=num('dma_PlannedDischarges');values.unplanned=num('dma_UnplannedDischarges');values.discharges=values.planned+values.unplanned;values.orTotal=num('dma_TotalORCases');values.pre=num('dma_Preoperative');values.post=num('dma_Postoperative');values.postponed=num('dma_PostponedORCases');values.cancelled=num('dma_CancelledORCases');
+    [['inbound-total',values.admissions],['inbound-er',values.erAdmissions],['inbound-opd',values.opdAdmissions],['er-total',values.erVolume],['er-volume',values.erVolume],['outbound-total',values.discharges],['outbound-planned',values.planned],['outbound-unplanned',values.unplanned],['net-flow','Net flow '+(values.admissions-values.discharges)]].forEach(function(x){set(x[0],x[1])});
+    [['dma_Admissions',values.admissions],['dma_Discharges',values.discharges],['or-total',values.orTotal],['or-pre',values.pre],['or-post',values.post],['or-postponed',values.postponed],['or-cancelled',values.cancelled]].forEach(function(x){var e=by(x[0]);if(e)e.value!==undefined?e.value=x[1]:e.textContent=x[1]});
+    refreshTheatreFlowUI();
+    var staff=by('dma_StaffAdequacy'),label=by('staff-status');if(staff&&label)label.textContent=staff.value==='778000000'?'Short':'Adequate';
+  }
+  function refreshTheatreZeroState(){
+    var read=function(id){var node=by(id);return node?Math.max(0,Number(String(node.textContent).replace(/[^0-9.-]/g,''))||0):0},totalCases=read('or-total'),preOp=read('or-pre'),postOp=read('or-post'),postponed=read('or-postponed'),cancelled=read('or-cancelled'),empty=document.querySelector('.panel.theatre .empty-note');
+    if(empty){var hasActivity=totalCases>0||preOp>0||postOp>0||postponed>0||cancelled>0;empty.hidden=hasActivity;if(hasActivity)empty.style.setProperty('display','none','important');else empty.style.removeProperty('display');}
+  }
+  function refreshTheatreFlowUI(){
+    var total=by('or-total'),badge=document.querySelector('.panel.theatre .theatre-total'),source=by('dma_TotalORCases'),totalValue=source?num('dma_TotalORCases'):values.orTotal;
+    if(total)total.textContent=String(totalValue);
+    if(badge)badge.textContent=String(totalValue)+' total cases';
+    refreshTheatreZeroState();
+  }
+  function renderRetention(){['ER','Inpatient','Closed'].forEach(function(area){var key=area==='ER'?'er':area==='Inpatient'?'inp':'closed',items=records.filter(function(r){return r.area===area}),c=by(key+'-cases'),ret=by(key+'-retained'),dam=by(area==='ER'?'dma_ERDAMA':area==='Inpatient'?'dma_INPDAMA':'dma_ClosedDAMA'),dr=by(area==='ER'?'dma_ERDAMARetention':area==='Inpatient'?'dma_INPDAMARetention':'dma_ClosedDAMARetention');if(c)c.textContent=items.length;if(ret)ret.textContent=items.filter(function(r){return r.retained}).length;if(dam)dam.value=items.length;if(dr)dr.value=items.filter(function(r){return r.retained}).length});var watch=by('watch-retained');if(watch)watch.textContent=records.filter(function(r){return r.retained}).length;var note=document.querySelector('.watch-note');if(note)note.textContent=records.length?'Retention cases recorded for this session.':'No retention cases recorded this shift.'}
+  function closeModal(modal,trigger){modal.classList.remove('open');modal.setAttribute('aria-hidden','true');if(trigger)trigger.focus()}
+  function openFlow(){flowTrigger=document.activeElement;var map={'flow-staff':'dma_StaffAdequacy','flow-er-admissions':'dma_ERAdmissions','flow-opd-admissions':'dma_OPDAdmissions','flow-er-volume':'dma_ERVolume','flow-planned':'dma_PlannedDischarges','flow-unplanned':'dma_UnplannedDischarges','flow-or-total':'dma_TotalORCases','flow-pre':'dma_Preoperative','flow-post':'dma_Postoperative','flow-postponed':'dma_PostponedORCases','flow-cancelled':'dma_CancelledORCases'};Object.keys(map).forEach(function(id){var input=by(id),source=by(map[id]);if(input&&source)input.value=source.value});by('flow-modal-feedback').textContent='';var modal=by('flow-modal');modal.classList.add('open');modal.setAttribute('aria-hidden','false');by('flow-staff').focus()}
+  function saveFlow(){var ids=['flow-er-admissions','flow-opd-admissions','flow-er-volume','flow-planned','flow-unplanned','flow-or-total','flow-pre','flow-post','flow-postponed','flow-cancelled'],feedback=by('flow-modal-feedback');for(var i=0;i<ids.length;i++){var input=by(ids[i]);if(!input||input.value===''||Number(input.value)<0||!Number.isFinite(Number(input.value))){feedback.textContent='Enter zero or a positive value for each field.';if(input)input.focus();return}}var map={'flow-staff':'dma_StaffAdequacy','flow-er-admissions':'dma_ERAdmissions','flow-opd-admissions':'dma_OPDAdmissions','flow-er-volume':'dma_ERVolume','flow-planned':'dma_PlannedDischarges','flow-unplanned':'dma_UnplannedDischarges','flow-or-total':'dma_TotalORCases','flow-pre':'dma_Preoperative','flow-post':'dma_Postoperative','flow-postponed':'dma_PostponedORCases','flow-cancelled':'dma_CancelledORCases'};Object.keys(map).forEach(function(id){var input=by(id),source=by(map[id]);if(input&&source){source.value=id==='flow-staff'?input.value:String(Math.max(0,Math.round(Number(input.value))));}});render();closeModal(by('flow-modal'),flowTrigger)}
+  document.querySelectorAll('.editable-value input').forEach(function(input){input.addEventListener('input',render)});render();renderRetention();
+  by('update-flow').addEventListener('click',openFlow);by('flow-save').addEventListener('click',saveFlow);by('flow-cancel').addEventListener('click',function(){closeModal(by('flow-modal'),flowTrigger)});by('flow-modal-close').addEventListener('click',function(){closeModal(by('flow-modal'),flowTrigger)});by('flow-modal').addEventListener('click',function(e){if(e.target===this)closeModal(this,flowTrigger)});by('flow-modal').addEventListener('keydown',function(e){if(e.key==='Escape')closeModal(this,flowTrigger)});by('flow-modal').addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.tagName==='INPUT'){e.preventDefault();saveFlow()}});by('flow-modal').querySelectorAll('input,select').forEach(function(input){input.addEventListener('input',function(){by('flow-modal-feedback').textContent=''})});
+  document.querySelector('[data-edit="staff"]').addEventListener('click',openFlow);
+  document.querySelectorAll('.retention-action').forEach(function(btn){btn.addEventListener('click',function(){retentionTrigger=btn;currentArea=btn.dataset.area;var modal=by('retention-modal');modal.classList.add('open');modal.setAttribute('aria-hidden','false');by('retention-modal-copy').textContent='Record a patient retained in '+currentArea+'.';by('retention-patient').value='';by('retention-reason').value='';by('retention-patient').focus()})});
+  by('retention-cancel').addEventListener('click',function(){closeModal(by('retention-modal'),retentionTrigger)});by('retention-save').addEventListener('click',function(){var p=by('retention-patient'),r=by('retention-reason'),modal=by('retention-modal');if(!p.value.trim()||!r.value.trim()){var old=modal.querySelector('.prototype-feedback');if(!old){old=document.createElement('div');old.className='prototype-feedback';modal.querySelector('.modal-actions').before(old)}old.textContent='Patient/MRN and reason are required.';if(!p.value.trim())p.focus();return}records.push({area:currentArea,patient:p.value.trim(),reason:r.value.trim(),retained:true});renderRetention();closeModal(modal,retentionTrigger)});by('retention-modal').addEventListener('click',function(e){if(e.target===this)closeModal(this,retentionTrigger)});by('retention-modal').addEventListener('keydown',function(e){if(e.key==='Escape')closeModal(this,retentionTrigger)});
+})();
+</script>
+</body>
+</html>
+<style>
+/* Theatre flow connector: stable three-column stage / connector / stage layout. */
+.theatre .pipeline {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(76px, 120px) minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 16px !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+.theatre .pipeline-node {
+  width: 100% !important;
+  min-width: 0 !important;
+  align-self: stretch !important;
+}
+.theatre .pipeline-arrow {
+  position: relative !important;
+  display: block !important;
+  justify-self: stretch !important;
+  align-self: center !important;
+  width: 100% !important;
+  height: 24px !important;
+  margin: 0 !important;
+  background: transparent !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+.theatre .pipeline-arrow::before {
+  display: block !important;
+  content: "" !important;
+  position: absolute !important;
+  left: 0 !important;
+  right: 10px !important;
+  top: 50% !important;
+  height: 1px !important;
+  background: var(--copper) !important;
+  opacity: .72 !important;
+}
+.theatre .pipeline-arrow::after {
+  display: block !important;
+  content: "" !important;
+  position: absolute !important;
+  right: 1px !important;
+  top: 50% !important;
+  width: 7px !important;
+  height: 7px !important;
+  border-top: 1px solid var(--copper) !important;
+  border-right: 1px solid var(--copper) !important;
+  background: transparent !important;
+  transform: translateY(-50%) rotate(45deg) !important;
+}
+.theatre .pipeline-arrow i { display: none !important; }
+@media (max-width: 700px) {
+  .theatre .pipeline {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  .theatre .pipeline-arrow {
+    width: min(170px, 72%) !important;
+    justify-self: center !important;
+    height: 24px !important;
+    transform: none !important;
+  }
+}
+</style>
+<style>
+/* V7 surgical fixes: single theatre connector and approved secondary actions */
+.pipeline-arrow{position:relative;display:block;width:170px;height:1px;align-self:center;justify-self:center;background:var(--copper);font-size:0;line-height:0}
+.pipeline-arrow:before{display:none!important}.pipeline-arrow i{display:none!important}
+.pipeline-arrow:after{content:"";position:absolute;right:0;top:50%;width:7px;height:7px;border-top:1px solid var(--copper);border-right:1px solid var(--copper);transform:translateY(-50%) rotate(45deg);background:transparent}
+.retention-action{display:inline-flex;align-items:center;justify-content:center;width:104px;height:30px;padding:0 8px;border:1px solid var(--green)!important;border-radius:7px;background:#fff!important;color:var(--green)!important;font-size:10px;font-weight:700;line-height:1;white-space:nowrap;gap:5px;box-shadow:none}
+.retention-action:hover{background:var(--green-bg)!important;border-color:var(--green)!important;color:var(--green)!important;text-decoration:none}
+@media(max-width:700px){.pipeline-arrow{width:150px}}
+</style>
+<script>
+(function(){document.querySelectorAll('.pipeline-arrow').forEach(function(connector){connector.textContent='';connector.setAttribute('aria-hidden','true');});})();
+</script>
+<style>
+/* V7 cascade lock: ensure surgical fixes win over prior experiment rules */
+.pipeline-arrow{position:relative!important;display:block!important;width:170px!important;height:1px!important;align-self:center!important;justify-self:center!important;background:var(--copper)!important;font-size:0!important;line-height:0!important}
+.pipeline-arrow:before{display:none!important}.pipeline-arrow i{display:none!important}.pipeline-arrow:after{content:"";position:absolute;right:0;top:50%;width:7px;height:7px;border-top:1px solid var(--copper);border-right:1px solid var(--copper);transform:translateY(-50%) rotate(45deg);background:transparent}
+.retention-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:104px!important;height:30px!important;padding:0 8px!important;border:1px solid var(--green)!important;border-radius:7px!important;background:#fff!important;color:var(--green)!important;font-size:10px!important;font-weight:700!important;line-height:1!important;white-space:nowrap!important;gap:5px!important;box-shadow:none!important}
+.retention-action:hover{background:var(--green-bg)!important;border-color:var(--green)!important;color:var(--green)!important;text-decoration:none!important}
+@media(max-width:700px){.pipeline-arrow{width:150px!important}}
+</style>
+<style>
+/* V6 final precision polish: no architecture changes */
+.flow-pulse>.pulse-zone{justify-content:center;min-height:154px}
+.pulse-zone h3{line-height:1.2;margin-bottom:1px}.pulse-status{margin-top:10px;line-height:1.1}.pulse-status small{margin-top:6px;line-height:1.2}.status-line{align-items:center;gap:6px;margin-top:11px;line-height:1.2}.status-line i{width:14px;min-width:14px;text-align:center}.status-line strong{font-weight:700}.status-line .edit-trigger{margin-left:auto;line-height:1;padding:2px 3px}
+.flow-metrics{align-items:start;row-gap:10px}.metric-pair{display:flex;flex-direction:column;justify-content:flex-start;min-height:39px}.metric-pair b{line-height:1.05}.metric-pair span{line-height:1.2;margin-top:5px}
+.flow-balance{align-items:center;min-height:29px;line-height:1.15}.flow-balance strong{line-height:1.15}
+.watch-value{line-height:1.05}.watch-value span{line-height:1.15}.watch-note{margin-top:9px;line-height:1.25}
+.pipeline{grid-template-columns:minmax(0,1fr) 170px minmax(0,1fr);align-items:center;gap:12px;max-width:620px}.pipeline-node{display:flex;flex-direction:column;justify-content:center;min-height:70px}.pipeline-node b{line-height:1.05}.pipeline-arrow{height:42px}.pipeline-arrow:before{left:0;right:0;height:1px;background:var(--copper);opacity:.7}.pipeline-arrow i{font-size:14px;background:var(--surface)}
+.theatre-summary{align-items:center;gap:16px;line-height:1.2}.theatre-summary:before{line-height:1.2}.exception{display:inline-flex;align-items:center;gap:6px;line-height:1.2}.exception i{width:12px;min-width:12px;text-align:center}.empty-note{align-items:center;gap:7px;line-height:1.2}
+.movement-grid{align-items:stretch}.movement-grid>.panel{height:100%;display:flex;flex-direction:column}.movement-grid>.panel>.panel-head{min-height:54px}.movement-grid>.panel>.theatre-body,.movement-grid>.panel>.retention-table{flex:1}.retention-table th,.retention-table td{line-height:1.2}.retention-action{width:104px;height:30px;padding:0 8px;border:1px solid var(--green);border-radius:7px;background:#fff;color:var(--green);font-weight:700;line-height:1;justify-content:center}.retention-action:hover{background:var(--green-bg);color:var(--green)}
+@media(max-width:700px){.pipeline{grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr);gap:8px}.movement-grid>.panel{height:auto}.movement-grid>.panel>.panel-head{min-height:0}}
+</style>
+<style>
+/* V5 controlled polish: V3 architecture retained */
+.flow-balance{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-start;gap:8px;margin-top:11px;padding-top:9px;border-top:1px solid #e4ddd5;color:var(--muted);font-size:10px;line-height:1.2}
+.flow-balance:before{left:0;right:0;top:-1px;opacity:.25}
+.flow-balance strong{margin-left:auto;color:var(--ink);font-size:10.5px;font-weight:750;white-space:nowrap}
+.pipeline{grid-template-columns:minmax(0,1fr) 140px minmax(0,1fr);gap:12px;max-width:600px;margin:0 auto;padding:2px 0 11px}
+.pipeline-node{min-height:70px;padding:5px 0}.pipeline-node.post{padding-left:0}.pipeline-node b{font-size:28px}.pipeline-arrow{height:48px;font-size:14px}.pipeline-arrow:before{left:0;right:0;height:1px;background:var(--copper);opacity:.65}.pipeline-arrow i{padding:0 6px;font-size:13px}
+.theatre-summary{max-width:600px;margin:0 auto;gap:15px;padding-top:9px}.theatre-summary:before{width:100%;margin-bottom:-3px}.exception{padding:0;border:0;background:transparent;border-radius:0;font-size:10px}.empty-note{display:flex;width:max-content;max-width:100%;margin:11px auto 0;padding:0;background:transparent;border:0;color:var(--muted);font-size:10px}.empty-note i{color:var(--faint)}
+.retention-table{table-layout:fixed}.retention-table th,.retention-table td{vertical-align:middle}.retention-table th:nth-child(1){width:34%}.retention-table th:nth-child(2){width:18%}.retention-table th:nth-child(3){width:20%}.retention-table th:nth-child(4){width:28%}.retention-table .retained{font-weight:800}.retention-action{width:104px;height:30px;justify-content:center;padding:0 8px;border:1px solid #557b60;border-radius:7px;background:#fff;color:var(--green);font-size:10px;font-weight:700;white-space:nowrap}.retention-action:hover{background:var(--green-bg);text-decoration:none}
+@media(max-width:700px){.pipeline{grid-template-columns:minmax(0,1fr) 110px minmax(0,1fr);gap:8px}.flow-balance{justify-content:flex-start}.flow-balance strong{margin-left:auto}.retention-action{width:100px}}
+</style>
+<style>
+/* V3 precision layer: movement-first presentation without changing the approved architecture */
+.pulse-zone.inbound{padding-right:10px;border-right:0}
+.pulse-zone.outbound{padding-left:10px}
+.pulse-zone.outbound:before{content:"";position:absolute;left:0;top:22px;bottom:22px;width:1px;background:var(--line)}
+.pulse-zone.inbound,.pulse-zone.outbound{position:relative}
+.flow-balance{position:relative;justify-content:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #e0c9b6;color:var(--muted)}
+.flow-balance:before{content:"";position:absolute;left:-24px;right:-8px;top:-1px;height:1px;background:var(--copper);opacity:.35}
+.flow-balance strong{display:inline-flex;align-items:center;margin-left:auto;color:var(--ink);font-size:11px;font-weight:750;white-space:nowrap}
+.flow-balance i{font-size:11px}
+.pulse-status{font-size:22px}
+.pulse-status small{font-size:10px}
+.pipeline{grid-template-columns:1fr 80px 1fr;gap:12px;padding:7px 0 13px}
+.pipeline-node,.pipeline-node.post{min-height:76px;padding:8px 2px;border:0;border-top:0;border-radius:0;background:transparent}
+.pipeline-node small{font-size:10px}.pipeline-node b{margin-top:9px;font-size:30px}
+.pipeline-arrow{position:relative;height:54px;font-size:17px}
+.pipeline-arrow:before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--copper);opacity:.65}
+.pipeline-arrow i{position:relative;padding:0 7px;background:var(--surface);font-size:15px}
+.theatre-summary{display:flex;align-items:center;gap:16px;margin-top:1px;padding-top:11px;border-top:1px solid #eee8e1}
+.theatre-summary:before{content:"Exceptions";color:var(--faint);font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.exception{padding:0;border:0;border-radius:0;background:transparent;font-size:10px}
+.exception i{font-size:11px}.exception strong{font-weight:750}
+.empty-note{display:inline-flex;margin-top:13px;padding:0;border:0;background:transparent;color:var(--muted);font-size:10px}
+.empty-note i{color:var(--faint);font-size:11px}
+.panel-head .theatre-total{margin-left:auto;margin-right:12px;color:var(--muted);font-size:10px;font-weight:650}
+.retention-table th{padding-top:10px;padding-bottom:9px}.retention-table td{padding-top:13px;padding-bottom:13px}
+.retention-table .cases{font-size:10px}.retention-table .retained{font-size:13px;font-weight:800}
+.retention-action{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid #d8c4b1;border-radius:7px;background:transparent;color:var(--copper);font-size:10px;font-weight:700;text-decoration:none}
+.retention-action:hover{background:var(--copper-pale);text-decoration:none}.retention-foot{font-size:10px}
+@media(max-width:700px){.pulse-zone.outbound:before{display:none}.flow-balance{padding-top:9px}.flow-balance:before{left:0;right:0}.pipeline{grid-template-columns:1fr 42px 1fr}.theatre-summary{gap:9px;flex-wrap:wrap}.theatre-summary:before{width:100%}}
+</style>
+<script>
+(function(){
+  var status=document.querySelector('.pulse-status');
+  if(status) status.innerHTML='Stable<small>No current pressure</small>';
+  var total=document.getElementById('or-total'), head=document.querySelector('.panel.theatre .panel-head');
+  if(total&&head){var badge=document.createElement('span');badge.className='theatre-total';badge.textContent=total.textContent+' total cases';head.insertBefore(badge,head.querySelector('small'));var totalWrap=total.closest('.exception');if(totalWrap)totalWrap.style.display='none';new MutationObserver(function(){badge.textContent=total.textContent+' total cases'}).observe(total,{childList:true,characterData:true,subtree:true});}
+  var balance=document.querySelector('.flow-balance');
+  if(balance){balance.setAttribute('aria-label','Admissions to hospital flow to discharges');}
+})();
+</script>
+<style>
+/* V7 final cascade lock */
+.pipeline-arrow{position:relative!important;display:block!important;width:170px!important;height:1px!important;align-self:center!important;justify-self:center!important;background:var(--copper)!important;font-size:0!important;line-height:0!important}
+.pipeline-arrow:before{display:none!important}.pipeline-arrow i{display:none!important}.pipeline-arrow:after{content:"";position:absolute;right:0;top:50%;width:7px;height:7px;border-top:1px solid var(--copper);border-right:1px solid var(--copper);transform:translateY(-50%) rotate(45deg);background:transparent}
+.retention-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:104px!important;height:30px!important;padding:0 8px!important;border:1px solid var(--green)!important;border-radius:7px!important;background:#fff!important;color:var(--green)!important;font-size:10px!important;font-weight:700!important;line-height:1!important;white-space:nowrap!important;gap:5px!important;box-shadow:none!important}
+.retention-action:hover{background:var(--green-bg)!important;border-color:var(--green)!important;color:var(--green)!important;text-decoration:none!important}
+@media(max-width:700px){.pipeline-arrow{width:150px!important}}
+</style>
+<nav class="dm-integrated-rail" aria-label="Duty Manager primary navigation"><div class="dm-mark" aria-label="Duty Manager">DM</div><button class="dm-nav" data-dm-route="home" aria-label="Home / Shift Command" title="Home / Shift Command"><i class="fa-solid fa-house" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="command-center" aria-label="Group Operations Command Center" title="Group Operations Command Center"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="general" aria-label="General / Shift Identity" title="General / Shift Identity"><i class="fa-solid fa-list-check" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="hospital-events" aria-label="Hospital Events" title="Hospital Events"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="administrative-issues" aria-label="Administrative Issues" title="Administrative Issues"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="patient-flow" aria-label="Patient Flow" title="Patient Flow"><i class="fa-solid fa-bed-pulse" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="operations" aria-label="Operations" title="Operations"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="experience" aria-label="Experience" title="Experience"><i class="fa-solid fa-users" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="summary" aria-label="Summary / Handover Review" title="Summary / Handover Review"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></button></nav><link rel="stylesheet" href="dm-shell.css"><script src="dm-navigation.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+/* Final scoped Theatre Flow layout correction. */
+.theatre .pipeline{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(76px,120px) minmax(0,1fr)!important;align-items:center!important;gap:16px!important;width:100%!important;max-width:none!important}
+.theatre .pipeline-node{width:100%!important;min-width:0!important;align-self:stretch!important}
+.theatre .pipeline-arrow{position:relative!important;display:block!important;justify-self:stretch!important;align-self:center!important;width:100%!important;height:24px!important;margin:0!important;background:transparent!important;font-size:0!important;line-height:0!important}
+.theatre .pipeline-arrow:before{display:block!important;content:""!important;position:absolute!important;left:0!important;right:10px!important;top:50%!important;height:1px!important;background:var(--copper)!important;opacity:.72!important}
+.theatre .pipeline-arrow:after{display:block!important;content:""!important;position:absolute!important;right:1px!important;top:50%!important;width:7px!important;height:7px!important;border-top:1px solid var(--copper)!important;border-right:1px solid var(--copper)!important;background:transparent!important;transform:translateY(-50%) rotate(45deg)!important}
+.theatre .pipeline-arrow i{display:none!important}
+@media(max-width:700px){.theatre .pipeline{grid-template-columns:1fr!important;gap:8px!important}.theatre .pipeline-arrow{width:min(170px,72%)!important;justify-self:center!important;height:24px!important;transform:none!important}}
+</style>
+
+
+<script type="module" src="../js/duty-page-bridge.js"></script>
+
+

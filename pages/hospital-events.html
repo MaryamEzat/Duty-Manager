@@ -1,0 +1,619 @@
+﻿<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Duty Manager â€” Hospital Events</title><style>
+:root{--g:#19352a;--b:#b47b50;--bg:#f5f0e9;--p:#fffdfa;--i:#1d2922;--s:#617067;--l:#ded6ca;--r:#ab5047;--a:#a96629;--blue:#416f8d}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:13px/1.45 Inter,Segoe UI,Arial,sans-serif;color:var(--i)}.rail{position:fixed;inset:0 auto 0 0;width:70px;background:var(--g);display:flex;flex-direction:column;align-items:center;padding:14px 12px;gap:4px}.mark{width:42px;height:42px;border:1px solid #ffffff35;border-radius:12px;display:grid;place-items:center;color:#e9c49f;font-weight:800;margin-bottom:11px}.nav{width:46px;height:46px;border:0;border-radius:10px;background:transparent;color:#c5d0c7;font-size:17px}.nav.active{color:var(--g);background:var(--p);box-shadow:inset 3px 0 var(--b)}.app{margin-left:70px}.top{height:68px;background:var(--p);border-bottom:1px solid var(--l);display:flex;justify-content:space-between;align-items:center;padding:0 38px}.top small{font-size:10px;color:var(--s);font-weight:800;letter-spacing:.08em;text-transform:uppercase}.ctx{display:flex;gap:25px}.ctx span{display:grid;gap:1px;text-align:right}.ctx small{font-size:9px}.ctx b{font-size:12px}.main{max-width:1480px;margin:auto;padding:30px 38px}.head{display:flex;justify-content:space-between;align-items:end;margin-bottom:16px}.ey{font-size:10px;color:var(--b);font-weight:800;letter-spacing:.11em;text-transform:uppercase}.head h1{font-size:30px;letter-spacing:-.045em;margin:5px 0 2px}.sub{margin:0;color:var(--s)}.btn{height:40px;padding:0 14px;border:1px solid var(--b);border-radius:9px;background:var(--b);color:#fff;font:800 12px inherit;cursor:pointer}.btn:hover{background:#93613e}.summary{display:grid;grid-template-columns:repeat(5,1fr);overflow:hidden;border:1px solid var(--l);border-radius:12px;background:var(--p)}.summary div{padding:12px 16px;border-right:1px solid var(--l)}.summary div:last-child{border:0}.summary small{display:block;color:var(--s);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.summary b{display:block;margin-top:4px;font-size:21px}.summary .major b{color:var(--r)}.summary .moderate b{color:var(--a)}.summary .active b{color:#356140}.section{margin:24px 0 10px}.section h2{margin:0;font-size:17px}.section p{margin:3px 0;color:var(--s);font-size:12px}.register{position:relative;padding:8px 0;background:var(--p);border:1px solid var(--l);border-radius:13px;overflow:hidden}.register:before{content:"";position:absolute;left:92px;top:28px;bottom:28px;width:1px;background:#ded6ca}.event{position:relative;display:grid;grid-template-columns:72px minmax(0,1fr) 175px 112px;gap:17px;align-items:center;padding:17px 18px;border-bottom:1px solid var(--l);border-left:3px solid #7b967e}.event:last-child{border-bottom:0}.event:before{content:"";position:absolute;left:87px;top:50%;width:10px;height:10px;border-radius:50%;background:#66886b;box-shadow:0 0 0 4px var(--p);transform:translateY(-50%)}.event.major{background:#fffaf9;border-left-color:var(--r)}.event.major:before{background:var(--r)}.event.moderate{border-left-color:var(--a)}.event.moderate:before{background:var(--a)}.time{font-weight:800;font-variant-numeric:tabular-nums}.story h3{margin:0;font-size:14px}.story p{margin:3px 0 0;color:var(--s);font-size:11px}.badge{display:inline-flex;width:max-content;padding:4px 7px;border-radius:99px;font-size:9px;font-weight:800}.red{background:#fae9e6;color:#99473e}.amber{background:#fff0df;color:#955a1e}.green{background:#e8f0e8;color:#356140}.owner{display:grid;gap:6px}.owner small{font-size:9px;color:var(--s);font-weight:800;letter-spacing:.06em}.owner b{font-size:11px}.open{height:33px;border:1px solid #426950;border-radius:8px;background:#fff;color:#19352a;font:800 10px inherit;white-space:nowrap}.open:hover{background:#eef5ee}@media(max-width:850px){.event{grid-template-columns:60px 1fr 120px 100px;gap:10px}.register:before{left:78px}}@media(max-width:650px){.rail{position:static;width:100%;height:58px;flex-direction:row;padding:8px}.mark{display:none}.app{margin:0}.top{padding:0 15px}.top>small{display:none}.ctx{gap:10px}.ctx span:nth-child(2){display:none}.main{padding:22px 14px}.head{align-items:start;flex-direction:column}.summary{grid-template-columns:repeat(3,1fr)}.summary div:nth-child(3){border-right:0}.event{grid-template-columns:54px 1fr;gap:9px}.register:before{left:69px}.owner,.open{grid-column:2}.open{width:110px}.event:before{left:64px}}
+</style><body><nav class="rail"><div class="mark">DM</div><button class="nav">âŒ‚</button><button class="nav">â‰¡</button><button class="nav active" aria-current="page">â–³</button><button class="nav">â–¥</button></nav><div class="app"><header class="top"><small>Duty Manager / Operations handover</small><div class="ctx"><span><small>Business unit</small><b>AMH</b></span><span><small>Shift + date</small><b>Morning Â· 17 Aug 2026</b></span><span><small>Duty manager</small><b>Dr. Sara Ahmed</b></span></div></header><main class="main"><div class="head"><div><div class="ey">02 Â· Clinical situation awareness</div><h1>Hospital events</h1><p class="sub">Time-ordered clinical events, severity and accountable ownership.</p></div><button class="btn">Log hospital event</button></div><section class="summary"><div><small>Total events</small><b>3</b></div><div class="major"><small>Major</small><b>1</b></div><div class="moderate"><small>Moderate</small><b>1</b></div><div><small>Low</small><b>1</b></div><div class="active"><small>Active</small><b>1</b></div></section><div class="section"><h2>Clinical event timeline</h2><p>Chronological event record for this shift.</p></div><section class="register"><article class="event major"><time class="time">08:14</time><div class="story"><span class="badge red">Major</span><h3>Code Stroke Â· CT readiness delay</h3><p>Patient MRN 541822 Â· ER Â· Imaging handover extended by 11 minutes.</p></div><div class="owner"><small>Owner</small><b>Radiology lead</b><span class="badge red">Active monitoring</span></div><button class="open">Open event â†’</button></article><article class="event moderate"><time class="time">07:46</time><div class="story"><span class="badge amber">Moderate</span><h3>ER surge Â· paediatric triage</h3><p>Patient group event Â· ER Â· Four arrivals within 20 minutes.</p></div><div class="owner"><small>Owner</small><b>ER charge nurse</b><span class="badge green">Stabilised</span></div><button class="open">Open event â†’</button></article><article class="event"><time class="time">07:18</time><div class="story"><span class="badge green">Low</span><h3>VIP transfer coordination</h3><p>Patient MRN 223740 Â· IPD Â· Transfer completed to ward.</p></div><div class="owner"><small>Owner</small><b>Patient affairs</b><span class="badge green">Closed</span></div><button class="open">Open event â†’</button></article></section></main></div></body></html>
+<style>
+/* V2 clinical situation-awareness refinement */
+.summary.v2-summary{display:grid;grid-template-columns:minmax(230px,1.2fr) minmax(250px,1fr) auto;align-items:center;gap:0;min-height:76px;padding:0}
+.summary.v2-summary>div{min-height:76px;padding:13px 18px;border-right:1px solid var(--l);display:flex;flex-direction:column;justify-content:center}
+.summary.v2-summary>div:last-child{border-right:0}
+.summary-lead small,.summary-distribution small,.summary-state small{display:block;color:var(--s);font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+.summary-lead b{margin-top:3px;font-size:22px;letter-spacing:-.025em}
+.summary-lead b span{font-size:13px;font-weight:650;color:var(--s);letter-spacing:0}
+.summary-distribution{gap:7px}
+.severity-list{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.severity-item{display:inline-flex;align-items:center;gap:5px;color:var(--i);font-size:11px;font-weight:650}
+.severity-item i{width:6px;height:6px;border-radius:50%;display:inline-block}
+.severity-item.major i{background:var(--r)}.severity-item.moderate i{background:var(--a)}.severity-item.low i{background:#66886b}
+.summary-state{min-width:120px;background:#fffaf4}
+.summary-state b{margin-top:3px;color:var(--r);font-size:22px;font-variant-numeric:tabular-nums}
+.register{padding:0}.register:before{left:92px;top:28px;bottom:28px;background:#d5d8d1}
+.event{grid-template-columns:72px minmax(0,1fr) 175px 112px;gap:17px;padding:18px;border-left:0;border-bottom-color:#e6dfd7}
+.event.major{background:#fffaf8}.event.moderate,.event:not(.major){background:var(--p)}
+.event:before{left:87px;width:10px;height:10px;box-shadow:0 0 0 4px var(--p);z-index:1}
+.event.major:before{box-shadow:0 0 0 4px #fffaf8}.event.moderate:before{background:var(--a)}.event:not(.major):not(.moderate):before{background:#66886b}
+.time{align-self:start;padding-top:2px;font-size:13px}.story{min-width:0}.story .badge{margin-bottom:5px}.story h3{font-size:15px;line-height:1.3;letter-spacing:-.01em}.story p{margin:4px 0 0;line-height:1.45}
+.owner{align-self:center;gap:4px;min-width:0}.owner small{display:none}.owner b{font-size:10px;line-height:1.25;letter-spacing:.07em;text-transform:uppercase;color:var(--i)}.owner .badge{font-size:9px;justify-self:start}
+.open{align-self:center;width:112px;height:34px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;line-height:1}.open:focus-visible{outline:3px solid #dfa56e;outline-offset:2px}
+@media(max-width:850px){.summary.v2-summary{grid-template-columns:1fr 1.1fr auto}.event{grid-template-columns:60px 1fr 120px 100px;gap:10px}.register:before{left:78px}.event:before{left:73px}.open{width:100px}}
+@media(max-width:650px){.summary.v2-summary{grid-template-columns:1fr 1fr}.summary.v2-summary>div{min-height:64px}.summary-lead{grid-column:1/-1;border-right:0!important;border-bottom:1px solid var(--l)}.summary-state{min-width:0}.severity-list{gap:7px}.event{grid-template-columns:54px 1fr;gap:9px;padding:16px 14px}.register:before{left:69px}.event:before{left:64px}.owner,.open{grid-column:2}.owner{margin-top:3px}.open{justify-self:start}}
+</style><script>
+(function(){var summary=document.querySelector('.summary');if(summary){summary.classList.add('v2-summary');summary.innerHTML='<div class="summary-lead"><small>Shift event register</small><b>3 <span>events this shift</span></b></div><div class="summary-distribution"><small>Severity distribution</small><div class="severity-list"><span class="severity-item major"><i></i>Major&nbsp;1</span><span class="severity-item moderate"><i></i>Moderate&nbsp;1</span><span class="severity-item low"><i></i>Low&nbsp;1</span></div></div><div class="summary-state"><small>Operational state</small><b>1 <span style="font-size:11px;font-weight:650;color:var(--s)">Active</span></b></div>';}document.querySelectorAll('.event .open').forEach(function(action){action.setAttribute('aria-label','Open hospital event');});})();
+</script>
+<style>
+/* V3 â€” final timeline composition polish */
+.summary.v2-summary{
+  grid-template-columns:minmax(220px,1.05fr) minmax(300px,1.2fr) minmax(116px,.42fr);
+  min-height:72px;
+}
+.summary.v2-summary>div{min-height:72px;padding:12px 18px}
+.summary-lead b{font-size:28px;line-height:1;letter-spacing:-.04em}
+.summary-lead b span{display:block;margin-top:4px;font-size:11px;line-height:1.1;font-weight:650;letter-spacing:.01em}
+.summary-distribution{gap:6px}
+.severity-list{gap:13px}
+.severity-item{font-size:11px}
+.summary-state{min-width:116px;background:#fff8f1}
+.summary-state b{font-size:26px;line-height:1}
+.summary-state b span{display:block!important;margin-top:4px;font-size:10px!important;line-height:1.1}
+
+.section{margin:18px 0 8px}
+.section p{margin-top:2px}
+.register:before{top:43px;bottom:43px;left:92px}
+.event{
+  grid-template-columns:8% minmax(0,1fr) 20% 12%;
+  gap:14px;
+  min-height:0;
+  padding:14px 18px;
+}
+.event:before{left:87px}
+.event.major:before{background:var(--r)}
+.event .story .badge{margin-bottom:2px;height:21px;min-height:21px;padding:0 7px;line-height:1}
+.story h3{font-size:15px;line-height:1.25}
+.story p{margin-top:3px;font-size:11px;line-height:1.35}
+.owner{gap:4px}
+.owner b{font-size:10.5px;letter-spacing:.035em}
+.owner .badge{height:21px;min-height:21px;padding:0 7px;line-height:1}
+.open{width:104px;height:32px;padding:0 7px;border-color:#557b60;font-size:10px;font-weight:750}
+.open:hover{background:#eef5ee;color:#19352a}
+.event:hover{background:#fffdf9}
+.event.major:hover{background:#fff8f5}
+.event+.event{border-top:0}
+
+@media(max-width:850px){
+  .summary.v2-summary{grid-template-columns:1fr 1.25fr auto}
+  .event{grid-template-columns:8% minmax(0,1fr) 20% 12%;gap:10px}
+  .register:before{left:78px}
+  .event:before{left:73px}
+}
+@media(max-width:650px){
+  .summary.v2-summary{grid-template-columns:1fr 1fr}
+  .summary.v2-summary>div{min-height:64px}
+  .summary-lead{grid-column:1/-1}
+  .summary-lead b{font-size:25px}
+  .event{grid-template-columns:54px 1fr;gap:8px;padding:13px 14px}
+  .register:before{left:69px;top:39px;bottom:39px}
+  .event:before{left:64px}
+  .owner,.open{grid-column:2}
+}
+</style>
+<script>
+(function(){
+  var state=document.querySelector('.summary-state b span');
+  if(state) state.textContent='Active event';
+})();
+</script>
+<style>
+/* V4 â€” dedicated chronological rail and final event geometry */
+.register{position:relative;padding:0}
+.register:before{
+  left:117px;
+  top:39px;
+  bottom:39px;
+  width:1px;
+  z-index:1;
+  background:#c9c5bb;
+}
+.event{
+  position:relative;
+  z-index:0;
+  grid-template-columns:72px 34px minmax(420px,1fr) 200px 120px;
+  column-gap:10px;
+  min-height:76px;
+  padding:13px 18px;
+  border-bottom-color:#ebe5de;
+}
+.event .story{grid-column:3}
+.event .owner{grid-column:4}
+.event .open{grid-column:5}
+.event:before{
+  left:112px;
+  top:50%;
+  z-index:3;
+  width:10px;
+  height:10px;
+  box-shadow:0 0 0 4px var(--p);
+  transform:translateY(-50%);
+}
+.event.major:before{box-shadow:0 0 0 4px #fffaf8}
+.event .story .badge{margin-bottom:4px}
+.story h3{line-height:1.24}
+.story p{margin-top:3px;line-height:1.32}
+.owner{
+  align-self:center;
+  gap:4px;
+  padding-left:2px;
+}
+.owner b{
+  font-size:10.5px;
+  font-weight:750;
+  letter-spacing:.025em;
+  text-transform:none;
+}
+.owner .badge{align-self:start}
+.open{
+  grid-column:5;
+  justify-self:end;
+  width:112px;
+  min-width:112px;
+  height:32px;
+  padding:0 7px;
+}
+.event:hover{background:#fffdf9}
+.event.major:hover{background:#fff8f5}
+
+@media(max-width:850px){
+  .register:before{left:101px;top:39px;bottom:39px}
+  .event{grid-template-columns:64px 30px minmax(300px,1fr) 150px 105px;column-gap:8px}
+  .event:before{left:96px}
+  .open{width:100px;min-width:100px}
+}
+@media(max-width:650px){
+  .register:before{left:69px;top:38px;bottom:38px}
+  .event{grid-template-columns:54px 1fr;column-gap:8px;min-height:0;padding:13px 14px}
+  .event:before{left:64px}
+  .event .story,.event .owner,.event .open{grid-column:2}
+  .event .owner{margin-top:2px}
+  .event .open{justify-self:start}
+}
+</style>
+<style>
+/* V5 â€” final precision polish */
+.register:before{background:#bdb9ae}
+.event{
+  min-height:0;
+  padding:12px 18px;
+  border-bottom-color:#eee8e1;
+}
+.event:before{
+  z-index:4;
+  box-shadow:0 0 0 4px var(--p);
+}
+.event.major{background:#fff9f5}
+.event.major:before{box-shadow:0 0 0 4px #fff9f5}
+.event.major:hover{background:#fff7f2}
+.event .story .badge,
+.event .owner .badge{
+  height:21px;
+  min-height:21px;
+  padding:0 7px;
+  border-radius:999px;
+  font-size:9px;
+  line-height:1;
+}
+.event .story .badge{margin-bottom:4px}
+.story h3{line-height:1.24}
+.story p{font-size:11px;line-height:1.32}
+.owner{
+  align-self:center;
+  display:grid;
+  align-content:center;
+  gap:4px;
+  padding-left:2px;
+}
+.owner b{
+  font-size:10.5px;
+  font-weight:650;
+  letter-spacing:0;
+  line-height:1.25;
+  text-transform:none;
+}
+.owner .badge{align-self:start}
+.open{
+  width:112px;
+  min-width:112px;
+  height:32px;
+  padding:0 8px;
+  border:1px solid #557b60;
+  border-radius:8px;
+  justify-self:end;
+  align-self:center;
+  line-height:1;
+}
+.open:focus-visible{outline:3px solid #dfa56e;outline-offset:2px}
+.summary.v2-summary>div{padding-top:11px;padding-bottom:11px}
+.summary-state{padding-right:17px!important}
+.section{margin-top:17px;margin-bottom:7px}
+.section p{line-height:1.35}
+@media(max-width:850px){
+  .event{grid-template-columns:64px 30px minmax(220px,1fr) 150px 105px}
+  .open{width:100px;min-width:100px}
+}
+@media(max-width:650px){
+  .event{padding:12px 14px}
+  .event .open{width:100px;min-width:100px}
+}
+</style>
+<style>
+/* V6 â€” accountability composition correction */
+.event{
+  grid-template-columns:72px 34px minmax(420px,1fr) 190px 125px;
+}
+.event .owner{
+  grid-column:4;
+  align-self:start;
+  justify-self:start;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:4px;
+  margin-top:25px;
+  padding-left:0;
+}
+.event .owner b{
+  width:max-content;
+  line-height:1.25;
+}
+.event .owner .badge{
+  align-self:flex-start;
+  margin:0;
+}
+.event .open{
+  grid-column:5;
+  align-self:center;
+}
+@media(max-width:850px){
+  .event{grid-template-columns:64px 30px minmax(220px,1fr) 145px 110px}
+  .event .owner{margin-top:25px}
+  .event .open{width:100px;min-width:100px}
+}
+@media(max-width:650px){
+  .event{grid-template-columns:54px 1fr}
+  .event .owner,.event .open{grid-column:2}
+  .event .owner{margin-top:2px}
+}
+</style>
+<style>
+/* V7 â€” centered accountability block */
+.event .owner{
+  align-self:center;
+  justify-self:center;
+  margin-top:0;
+  padding:0;
+  width:max-content;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  text-align:center;
+}
+.event .owner b{
+  width:max-content;
+  font-size:10.5px;
+  font-weight:650;
+  line-height:1.25;
+  letter-spacing:0;
+  text-transform:none;
+  text-align:center;
+}
+.event .owner .badge{
+  align-self:center;
+  height:20px;
+  min-height:20px;
+  padding:0 7px;
+  border-radius:999px;
+  font-size:8.8px;
+  font-weight:750;
+  line-height:1;
+  white-space:nowrap;
+}
+.event .open{align-self:center}
+@media(max-width:650px){
+  .event .owner{
+    align-self:start;
+    justify-self:start;
+    margin-top:2px;
+    align-items:flex-start;
+    text-align:left;
+  }
+  .event .owner b{text-align:left}
+  .event .owner .badge{align-self:flex-start}
+}
+</style>
+<style>
+/* V8 â€” exact severity and accountability centerlines */
+.register{--timeline-dot-radius:5px}
+.register:before{display:none!important}
+.timeline-rail{position:absolute;left:117px;top:0;height:0;width:1px;background:#bdb9ae;pointer-events:none;z-index:1}
+.event .story .event-header:before{display:none!important}
+.timeline-dot{position:absolute;left:-32px;top:50%;width:10px;height:10px;border-radius:50%;transform:translateY(-50%);z-index:4;background:#66886b}
+.event.major .timeline-dot{background:var(--r)}
+.event.moderate .timeline-dot{background:var(--a)}
+.event:before{display:none}
+.event .story .event-header:before,.event:has(.story>.badge):before{box-shadow:none!important}
+.event:after{content:"";position:absolute;left:117px;top:0;bottom:0;width:1px;z-index:2;background:linear-gradient(to bottom,transparent 0,transparent calc(50% - var(--timeline-dot-radius)),#bdb9ae calc(50% - var(--timeline-dot-radius)),#bdb9ae calc(50% + var(--timeline-dot-radius)),transparent calc(50% + var(--timeline-dot-radius)),transparent 100%)}
+.event.timeline-first:after,.event:first-child:after{background:linear-gradient(to bottom,transparent 0,transparent calc(50% + var(--timeline-dot-radius)),#bdb9ae calc(50% + var(--timeline-dot-radius)),#bdb9ae 100%)}
+.event.timeline-last:after,.event:last-child:after{background:linear-gradient(to bottom,#bdb9ae 0,#bdb9ae calc(50% - var(--timeline-dot-radius)),transparent calc(50% - var(--timeline-dot-radius)),transparent 100%)}
+.event.timeline-first.timeline-last:after,.event:first-child:last-child:after{background:transparent}
+@media(max-width:850px){.timeline-rail{left:101px}.event:after{left:101px}.timeline-dot{left:-32px}}
+@media(max-width:650px){.timeline-rail{left:69px}.event:after{left:69px}.timeline-dot{left:-12px}}
+.event:after{display:none!important}
+.event .story .event-header{
+  position:relative;
+  display:flex;
+  align-items:center;
+  min-height:21px;
+  width:max-content;
+}
+.event .story .event-header .badge{
+  margin:0;
+  height:20px;
+  min-height:20px;
+  padding:0 7px;
+  line-height:1;
+}
+.event .story .event-header:before{
+  content:"";
+  position:absolute;
+  left:-32px;
+  top:50%;
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  transform:translateY(-50%);
+  z-index:4;
+  box-shadow:0 0 0 4px var(--p);
+}
+.event.major .event-header:before{background:var(--r);box-shadow:0 0 0 4px #fff9f5}
+.event.moderate .event-header:before{background:var(--a)}
+.event:not(.major):not(.moderate) .event-header:before{background:#66886b}
+.event .owner{
+  width:180px;
+  min-width:180px;
+  margin:0;
+  align-self:center;
+  justify-self:center;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  text-align:center;
+}
+.event .owner b{
+  width:100%;
+  font-size:10.5px;
+  line-height:1.2;
+  text-align:center;
+}
+.event .owner .badge{
+  align-self:center;
+  height:20px;
+  min-height:20px;
+  padding:0 7px;
+  font-size:8.8px;
+  line-height:1;
+}
+@media(max-width:850px){
+  .event .story .event-header:before{left:-32px}
+  .event .owner{width:135px;min-width:135px}
+}
+@media(max-width:650px){
+  .event .story .event-header:before{left:-12px}
+  .event .owner{
+    width:max-content;
+    min-width:0;
+    align-self:start;
+    justify-self:start;
+    align-items:flex-start;
+    text-align:left;
+  }
+  .event .owner b{text-align:left}
+  .event .owner .badge{align-self:flex-start}
+}
+</style>
+<script>
+(function(){
+  document.querySelectorAll('.event .story').forEach(function(story){
+    var badge=story.querySelector('.badge');
+    if(!badge || badge.parentElement.classList.contains('event-header')) return;
+    var header=document.createElement('div');
+    header.className='event-header';
+    badge.parentNode.insertBefore(header,badge);
+    header.appendChild(badge);
+    var dot=document.createElement('span');dot.className='timeline-dot';dot.setAttribute('aria-hidden','true');header.appendChild(dot);
+  });
+})();
+</script>
+<style>
+/* V9 â€” plain semantic status indicators */
+.event .story .event-header .badge,
+.event .story>.badge,
+.event .owner .badge{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  height:20px;
+  min-height:20px;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  color:var(--i)!important;
+  font-size:9.5px;
+  font-weight:650;
+  line-height:1;
+  white-space:nowrap;
+}
+.event .story .event-header .badge:before,
+.event .story>.badge:before,
+.event .owner .badge:before{
+  content:"";
+  display:inline-block;
+  width:6px;
+  height:6px;
+  flex:0 0 6px;
+  border-radius:50%;
+  background:#66886b;
+}
+.event.major .story .event-header .badge:before,
+.event.major .owner .badge:before{background:var(--r)}
+.event.moderate .story .event-header .badge:before{background:var(--a)}
+.event.moderate .owner .badge:before,
+.event:not(.major):not(.moderate) .owner .badge:before{background:#66886b}
+.event:not(.major):not(.moderate) .story .event-header .badge:before{background:#66886b}
+.event .owner .badge{font-size:9px;font-weight:600;color:var(--s)!important}
+</style>
+<style>
+/* V10 â€” remove duplicate severity markers, retain status indicators */
+.event .story .event-header .badge:before{display:none}
+.event .story .event-header .badge{
+  gap:0;
+  color:var(--i)!important;
+  font-size:9.5px;
+  font-weight:650;
+  line-height:1;
+}
+.event .owner{
+  gap:3px;
+}
+.event .owner b{
+  font-size:11px;
+  font-weight:650;
+  line-height:1.25;
+}
+.event .owner .badge{
+  gap:5px;
+  font-size:9.5px;
+  font-weight:600;
+  line-height:1.2;
+}
+.event .owner .badge:before{
+  display:inline-block;
+  width:6px;
+  height:6px;
+  flex:0 0 6px;
+}
+</style>
+<style>
+/* V11 â€” moderate accountability rebalance */
+.event{
+  grid-template-columns:72px 34px minmax(420px,1fr) 220px 125px;
+}
+.event .owner{
+  width:180px;
+  min-width:180px;
+  justify-self:center;
+}
+.event .owner b{
+  font-size:11.5px;
+  font-weight:650;
+  line-height:1.25;
+}
+.event .owner .badge{
+  font-size:10px;
+  line-height:1.2;
+}
+.event .story .event-header .badge{
+  font-size:10px;
+  font-weight:650;
+  line-height:1;
+}
+.register:before{top:22px;bottom:22px}
+@media(max-width:850px){
+  .event{grid-template-columns:64px 30px minmax(220px,1fr) 170px 110px}
+  .event .owner{width:150px;min-width:150px}
+}
+@media(max-width:650px){
+  .event{grid-template-columns:54px 1fr}
+  .event .owner{width:max-content;min-width:0}
+  .register:before{top:22px;bottom:22px}
+}
+</style>
+<style>
+/* V12 â€” place flexible space after accountability */
+.event{
+  grid-template-columns:72px 34px minmax(480px,760px) 190px minmax(0,1fr) 125px;
+}
+.event .story{grid-column:3}
+.event .owner{
+  grid-column:4;
+  width:180px;
+  min-width:180px;
+  justify-self:center;
+}
+.event .open{
+  grid-column:6;
+  justify-self:end;
+}
+@media(max-width:850px){
+  .event{grid-template-columns:64px 30px minmax(220px,1fr) 170px minmax(0,1fr) 110px}
+  .event .owner{width:150px;min-width:150px}
+}
+@media(max-width:650px){
+  .event{grid-template-columns:54px 1fr}
+  .event .story,.event .owner,.event .open{grid-column:2}
+  .event .owner{width:max-content;min-width:0}
+  .event .open{justify-self:start}
+}
+</style>
+<style>
+/* V13 â€” move accountability closer while preserving the action anchor */
+.event{
+  grid-template-columns:72px 34px minmax(480px,620px) 190px minmax(0,1fr) 125px;
+}
+.event .story{grid-column:3}
+.event .owner{
+  grid-column:4;
+  width:180px;
+  min-width:180px;
+  justify-self:center;
+}
+.event .open{
+  grid-column:6;
+  justify-self:end;
+}
+@media(max-width:850px){
+  .event{grid-template-columns:64px 30px minmax(220px,1fr) 170px minmax(0,1fr) 110px}
+  .event .owner{width:150px;min-width:150px}
+}
+@media(max-width:650px){
+  .event{grid-template-columns:54px 1fr}
+  .event .story,.event .owner,.event .open{grid-column:2}
+  .event .owner{width:max-content;min-width:0}
+  .event .open{justify-self:start}
+}
+</style>
+<style>
+/* V14 â€” align accountability with the event title/metadata zone */
+.event .owner{
+  transform:translateY(10px);
+}
+@media(max-width:650px){
+  .event .owner{transform:none}
+}
+</style>
+<nav class="dm-integrated-rail" aria-label="Duty Manager primary navigation"><div class="dm-mark" aria-label="Duty Manager">DM</div><button class="dm-nav" data-dm-route="home" aria-label="Home / Shift Command" title="Home / Shift Command"><i class="fa-solid fa-house" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="command-center" aria-label="Group Operations Command Center" title="Group Operations Command Center"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="general" aria-label="General / Shift Identity" title="General / Shift Identity"><i class="fa-solid fa-list-check" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="hospital-events" aria-label="Hospital Events" title="Hospital Events"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="administrative-issues" aria-label="Administrative Issues" title="Administrative Issues"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="patient-flow" aria-label="Patient Flow" title="Patient Flow"><i class="fa-solid fa-bed-pulse" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="operations" aria-label="Operations" title="Operations"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="experience" aria-label="Experience" title="Experience"><i class="fa-solid fa-users" aria-hidden="true"></i></button><button class="dm-nav" data-dm-route="summary" aria-label="Summary / Handover Review" title="Summary / Handover Review"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></button></nav><link rel="stylesheet" href="dm-shell.css"><script src="dm-navigation.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>.modal-backdrop{display:flex;position:fixed;inset:0;width:100vw;height:100vh;z-index:30;align-items:center;justify-content:center;padding:24px;overflow-x:hidden;overflow-y:auto;background:#18221d99}.modal-backdrop .modal{position:static;inset:auto;right:auto;left:auto;transform:none;width:min(680px,calc(100vw - 48px));max-width:680px;max-height:calc(100vh - 48px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;padding:22px;background:#fffdfa;border-radius:14px;box-shadow:0 25px 70px #18221d40}.modal-backdrop .modal h2{margin:0 0 6px;color:#19352a;font-size:18px}.modal-backdrop .modal p{color:#617067;font-size:12px}.modal-backdrop .modal label{display:block;margin-top:12px;color:#617067;font-size:10px;font-weight:700;text-transform:uppercase}.modal-backdrop .modal input,.modal-backdrop .modal select,.modal-backdrop .modal textarea{display:block;width:100%;max-width:100%;box-sizing:border-box;margin-top:6px;padding:9px 10px;border:1px solid #ded6ca;border-radius:8px;background:#fff;font:12px Inter,Segoe UI,Arial,sans-serif}.modal-backdrop .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}.modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:12px;border-bottom:1px solid var(--l)}.modal-header p{margin:3px 0 0}.modal-close{border:0;background:transparent;color:var(--s);font-size:22px;line-height:1;cursor:pointer;padding:2px 4px}.modal-close:hover{color:var(--g)}.modal-close:focus-visible,.modal-backdrop .btn:focus-visible,.modal-backdrop input:focus-visible,.modal-backdrop select:focus-visible,.modal-backdrop textarea:focus-visible{outline:3px solid #b47b5066;outline-offset:2px}.modal-detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 18px;padding-top:15px}.modal-detail small{display:block;color:var(--s);font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}.modal-detail strong{display:block;margin-top:3px;color:var(--i);font-size:12px;font-weight:650;line-height:1.45}.modal-detail .wide{grid-column:1/-1}.modal-actions .btn.secondary{background:transparent;border-color:var(--l);color:var(--g)}.modal-actions .btn.secondary:hover{background:#f3eee7;border-color:#c7bbae}.modal-backdrop .modal-actions .btn:not(.secondary){background:var(--b);border-color:var(--b);color:#fff}@media(max-width:560px){.modal-detail{grid-template-columns:1fr}.modal-detail .wide{grid-column:auto}}</style>
+<style>.modal-backdrop{z-index:10000!important}.modal-backdrop.open{display:flex!important;position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;padding:24px!important;border:0!important;border-radius:0!important;background:#18221d99!important;color:inherit!important;box-shadow:none!important;white-space:normal!important}.head-actions{position:relative;display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:220px;flex:0 0 auto}.head-actions>.btn{flex:0 0 auto}.head-actions>.prototype-feedback{position:absolute;right:100%;margin:0 10px 0 0;white-space:nowrap}.prototype-feedback{margin:8px 0;color:var(--s);font-size:11px}.proto-invalid{border-color:var(--r)!important;box-shadow:0 0 0 2px #ab504733}@media(max-width:650px){.head-actions{width:100%;min-width:0;justify-content:flex-start;flex-wrap:wrap}.head-actions>.prototype-feedback{position:static;margin:0}}</style>
+<script>
+(function(){
+var add=document.querySelector('.head .btn'),register=document.querySelector('.register'),activeTrigger=add,records=new WeakMap(),actionSlot=null,rail=document.createElement('div');
+rail.className='timeline-rail';rail.setAttribute('aria-hidden','true');register.insertBefore(rail,register.firstChild);requestAnimationFrame(function(){[].slice.call(register.querySelectorAll('.event')).forEach(normalizeRow);updateTimelineRail();});
+if(add){actionSlot=document.createElement('div');actionSlot.className='head-actions';add.parentNode.appendChild(actionSlot);actionSlot.appendChild(add);}
+function text(row,sel){var e=row.querySelector(sel);return e?e.textContent.trim():''}
+function seed(row){var ctx=text(row,'.story p'),parts=ctx.split(' Â· '),patient=/^Patient(?: MRN| group event)/.test(parts[0]||'')?parts[0]:'',location=parts.length>1?parts[1]:'',description=parts.length>2?parts.slice(2).join(' Â· '):ctx;records.set(row,{title:text(row,'.story h3'),time:text(row,'.time'),severity:text(row,'.story .badge'),context:ctx,description:description,location:location,patient:patient,owner:text(row,'.owner b'),state:text(row,'.owner .badge')});}
+function refreshSummary(){var rows=[].slice.call(register.querySelectorAll('.event')),counts={Major:0,Moderate:0,Low:0},active=0;rows.forEach(function(row){var d=records.get(row)||{};counts[d.severity]=(counts[d.severity]||0)+1;if(d.state==='Active monitoring'||d.state==='Stabilised')active++;});var lead=document.querySelector('.summary-lead b');if(lead)lead.innerHTML=rows.length+' <span>events this shift</span>';['major','moderate','low'].forEach(function(k){var el=document.querySelector('.severity-item.'+k);if(el)el.innerHTML='<i></i>'+k.charAt(0).toUpperCase()+k.slice(1)+'&nbsp;'+(counts[k.charAt(0).toUpperCase()+k.slice(1)]||0)});var state=document.querySelector('.summary-state b');if(state)state.innerHTML=active+' <span style="font-size:11px;font-weight:650;color:var(--s)">'+(active===1?'Active event':'Active events')+'</span>';}
+function normalizeRow(row){var story=row.querySelector('.story'),badge=story&&story.querySelector(':scope>.badge'),header=story&&story.querySelector(':scope>.event-header');if(story&&badge&&!header){header=document.createElement('div');header.className='event-header';story.insertBefore(header,badge);header.appendChild(badge);}if(header&&!header.querySelector('.timeline-dot')){var dot=document.createElement('span');dot.className='timeline-dot';dot.setAttribute('aria-hidden','true');header.appendChild(dot);}row.classList.remove('timeline-first','timeline-last');}
+function updateTimelineRail(){var dots=[].slice.call(register.querySelectorAll('.timeline-dot')).filter(function(dot){return dot.offsetParent!==null});if(!dots.length){rail.style.height='0px';return}var container=register.getBoundingClientRect(),originX=container.left+register.clientLeft,originY=container.top+register.clientTop,first=dots[0].getBoundingClientRect(),last=dots[dots.length-1].getBoundingClientRect(),start=first.top+first.height/2-originY,end=last.top+last.height/2-originY,axis=first.left+first.width/2-originX;rail.style.left=axis+'px';rail.style.top=start+'px';rail.style.height=Math.max(0,end-start)+'px';}
+function sortRows(){var rows=[].slice.call(register.querySelectorAll('.event'));rows.forEach(normalizeRow);rows.sort(function(a,b){return text(b,'.time').localeCompare(text(a,'.time'))}).forEach(function(row){register.appendChild(row)});var visible=rows.filter(function(row){return row.offsetParent!==null});if(visible.length){visible[0].classList.add('timeline-first');visible[visible.length-1].classList.add('timeline-last');}updateTimelineRail();}
+function closeModal(box){box.remove();if(activeTrigger)activeTrigger.focus()}
+function renderEventRow(row,d){var sev=(d.severity||'Low').toLowerCase(),state=d.state||'Active monitoring',badgeClass=sev==='major'?'red':sev==='moderate'?'amber':'green',patientLabel=d.patient?(/^Patient\b/.test(d.patient)?d.patient:'Patient MRN '+d.patient):'',description=d.description||d.context||'',parts=[patientLabel,d.location||'',description].filter(Boolean);row.className='event '+sev;row.innerHTML='<time class="time">'+d.time+'</time><div class="story"><span class="badge '+badgeClass+'">'+sev.charAt(0).toUpperCase()+sev.slice(1)+'</span><h3>'+d.title+'</h3><p>'+parts.join(' Â· ')+'</p></div><div class="owner"><small>Owner</small><b>'+d.owner+'</b><span class="badge '+(state==='Active monitoring'?'red':'green')+'">'+state+'</span></div><button class="open" type="button">Open event â†’</button>';normalizeRow(row);row.querySelector('.open').onclick=function(){detail(row)};}
+function detail(row){activeTrigger=row.querySelector('.open');var d=records.get(row)||{},box=document.createElement('div');box.className='modal-backdrop open';box.innerHTML='<div class="modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><header class="modal-header"><div><h2 id="detail-title">Update hospital event</h2><p>Edit this event for the current shift.</p></div><button class="modal-close" type="button" aria-label="Close">Ã—</button></header><div class="modal-body"><label>Event title *<input id="upd-title"></label><label>Event time *<input id="upd-time" type="time"></label><label>Severity *<select id="upd-sev"><option value="major">Major</option><option value="moderate">Moderate</option><option value="low">Low</option></select></label><label>Operational State *<select id="upd-state"><option>Active monitoring</option><option>Stabilised</option><option>Closed</option></select></label><label>Location / Department<input id="upd-loc"></label><label>Description / Context *<textarea id="upd-desc"></textarea></label><label>Owner<input id="upd-owner"></label><label>Patient / MRN<input id="upd-patient"></label><div class="prototype-feedback" id="upd-error" aria-live="polite"></div></div><div class="modal-actions"><button class="btn secondary" type="button">Cancel</button><button class="btn" type="button">Update event</button></div></div>';document.body.appendChild(box);box.querySelector('#upd-title').value=d.title||'';box.querySelector('#upd-time').value=d.time||'';box.querySelector('#upd-sev').value=(d.severity||'Low').toLowerCase();box.querySelector('#upd-state').value=d.state||'Active monitoring';box.querySelector('#upd-loc').value=d.location||'';box.querySelector('#upd-desc').value=d.description||d.context||'';box.querySelector('#upd-owner').value=d.owner||'';box.querySelector('#upd-patient').value=d.patient||'';var close=box.querySelector('.modal-close'),cancel=box.querySelector('.modal-actions .secondary'),save=box.querySelector('.modal-actions .btn:not(.secondary)');function closeUpdate(){closeModal(box)}close.onclick=closeUpdate;cancel.onclick=closeUpdate;box.onclick=function(e){if(e.target===box)closeUpdate()};box.onkeydown=function(e){if(e.key==='Escape'){e.preventDefault();closeUpdate()}};save.onclick=function(){var title=box.querySelector('#upd-title'),time=box.querySelector('#upd-time'),desc=box.querySelector('#upd-desc'),err=box.querySelector('#upd-error');if(!title.value.trim()||!time.value||!desc.value.trim()){err.textContent='Event title, time, and description are required.';if(!title.value.trim())title.focus();else if(!time.value)time.focus();else desc.focus();return}d.title=title.value.trim();d.time=time.value;d.severity=box.querySelector('#upd-sev').value.charAt(0).toUpperCase()+box.querySelector('#upd-sev').value.slice(1);d.state=box.querySelector('#upd-state').value;d.location=box.querySelector('#upd-loc').value.trim();d.description=desc.value.trim();d.context=d.description;d.owner=box.querySelector('#upd-owner').value.trim()||'Unassigned';d.patient=box.querySelector('#upd-patient').value.trim();records.set(row,d);renderEventRow(row,d);sortRows();refreshSummary();closeUpdate();};box.querySelector('#upd-title').focus();}
+function form(){activeTrigger=add;var box=document.createElement('div');box.className='modal-backdrop open';box.innerHTML='<div class="modal" role="dialog" aria-modal="true" aria-labelledby="ev-title"><header class="modal-header"><div><h2 id="ev-title">Log hospital event</h2><p>Event details are saved to the Duty Manager handover data source.</p></div><button class="modal-close" id="ev-close" type="button" aria-label="Close">Ã—</button></header><div class="modal-body"><label>Event title *<input id="ev-title-in"></label><label>Event time *<input id="ev-time" type="time" value="08:30"></label><label>Severity *<select id="ev-sev"><option value="major">Major</option><option value="moderate">Moderate</option><option value="low" selected>Low</option></select></label><label>Operational State *<select id="ev-state"><option>Active monitoring</option><option>Stabilised</option><option>Closed</option></select></label><label>Location / Department<input id="ev-loc"></label><label>Description / Context *<textarea id="ev-desc"></textarea></label><label>Owner<input id="ev-owner"></label><label>Patient / MRN<input id="ev-patient"></label><div class="prototype-feedback" id="ev-error" aria-live="polite"></div></div><div class="modal-actions"><button class="btn secondary" id="ev-cancel" type="button">Cancel</button><button class="btn" id="ev-save" type="button">Log event</button></div></div>';document.body.appendChild(box);var focus=box.querySelector('#ev-title-in');function close(){closeModal(box)};box.querySelector('#ev-cancel').onclick=close;box.querySelector('#ev-close').onclick=close;box.onclick=function(e){if(e.target===box)close()};box.onkeydown=function(e){if(e.key==='Escape')close()};box.querySelector('#ev-save').onclick=function(){var title=box.querySelector('#ev-title-in'),time=box.querySelector('#ev-time'),desc=box.querySelector('#ev-desc'),err=box.querySelector('#ev-error');if(!title.value.trim()||!time.value||!desc.value.trim()){err.textContent='Event title, time, and description are required.';if(!title.value.trim())title.focus();else if(!time.value)time.focus();else desc.focus();return}var sev=box.querySelector('#ev-sev').value,state=box.querySelector('#ev-state').value,loc=box.querySelector('#ev-loc').value.trim(),owner=box.querySelector('#ev-owner').value.trim()||'Unassigned',patient=box.querySelector('#ev-patient').value.trim(),article=document.createElement('article');article.className='event '+sev;article.innerHTML='<time class="time">'+time.value+'</time><div class="story"><span class="badge '+(sev==='major'?'red':sev==='moderate'?'amber':'green')+'">'+sev.charAt(0).toUpperCase()+sev.slice(1)+'</span><h3>'+title.value.trim()+'</h3><p>'+[patient?'Patient/MRN '+patient:'',loc,desc.value.trim()].filter(Boolean).join(' Â· ')+'</p></div><div class="owner"><small>Owner</small><b>'+owner+'</b><span class="badge '+(state==='Active monitoring'?'red':'green')+'">'+state+'</span></div><button class="open" type="button">Open event â†’</button>';records.set(article,{title:title.value.trim(),time:time.value,severity:sev.charAt(0).toUpperCase()+sev.slice(1),state:state,location:loc,owner:owner,patient:patient,context:desc.value.trim()});register.appendChild(article);article.querySelector('.open').onclick=function(){detail(article)};sortRows();refreshSummary();close();var fb=document.createElement('div');fb.className='prototype-feedback';fb.textContent='Event saved to Duty Manager data source';add.parentNode.insertBefore(fb,add.nextSibling);};focus.focus();}
+[].slice.call(register.querySelectorAll('.event')).forEach(function(row){seed(row);row.querySelector('.open').onclick=function(){detail(row)}});refreshSummary();if(add)add.onclick=form;if(new URLSearchParams(location.search).get('action')==='new')setTimeout(function(){if(add)add.click()},0);
+})();
+</script>
+
+
+<script type="module" src="../js/duty-page-bridge.js"></script>
+
+

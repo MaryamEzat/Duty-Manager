@@ -1,0 +1,121 @@
+{
+  "version": "1.0",
+  "appId": "0a434773-9f33-4ac5-8307-b267c3018afd",
+  "appDisplayName": "Duty Manager",
+  "region": "prod",
+  "appType": "CodeApp",
+  "environmentId": "9ce6fb09-5b63-e9f4-9185-b707b4b3425e",
+  "description": " ",
+  "buildPath": "./dist",
+  "buildEntryPoint": "index.html",
+  "localAppUrl": "http://localhost:3000",
+  "logoPath": "Default",
+  "connectionReferences": {},
+  "databaseReferences": {
+    "default.cds": {
+      "dataSources": {
+        "administrativeissues": {
+          "entitySetName": "dma_administrativeissues",
+          "logicalName": "dma_administrativeissue",
+          "isHidden": false
+        },
+        "administrativeissueentries": {
+          "entitySetName": "dma_administrativeissueentries",
+          "logicalName": "dma_administrativeissueentry",
+          "isHidden": false
+        },
+        "alerts": {
+          "entitySetName": "dma_alerts",
+          "logicalName": "dma_alert",
+          "isHidden": false
+        },
+        "categories": {
+          "entitySetName": "hx_categories",
+          "logicalName": "hx_category",
+          "isHidden": false
+        },
+        "coverageshortages": {
+          "entitySetName": "dma_coverageshortages",
+          "logicalName": "dma_coverageshortage",
+          "isHidden": false
+        },
+        "egy_patients": {
+          "entitySetName": "opd_patients",
+          "logicalName": "opd_patient",
+          "isHidden": false
+        },
+        "ervisits": {
+          "entitySetName": "cr301_ervisitses",
+          "logicalName": "cr301_ervisits",
+          "isHidden": false
+        },
+        "eventcodes": {
+          "entitySetName": "dma_eventcodes",
+          "logicalName": "dma_eventcode",
+          "isHidden": false
+        },
+        "eventtypes": {
+          "entitySetName": "dma_eventtypes",
+          "logicalName": "dma_eventtype",
+          "isHidden": false
+        },
+        "facilitycapacities": {
+          "entitySetName": "dma_facilitycapacities",
+          "logicalName": "dma_facilitycapacity",
+          "isHidden": false
+        },
+        "handoverreports": {
+          "entitySetName": "dma_handoverreports",
+          "logicalName": "dma_handoverreport",
+          "isHidden": false
+        },
+        "hospitalevents": {
+          "entitySetName": "dma_hospitalevents",
+          "logicalName": "dma_hospitalevent",
+          "isHidden": false
+        },
+        "ipdpatients": {
+          "entitySetName": "ipd_patients",
+          "logicalName": "ipd_patient",
+          "isHidden": false
+        },
+        "ksapatients": {
+          "entitySetName": "opd_ksapatientses",
+          "logicalName": "opd_ksapatients",
+          "isHidden": false
+        },
+        "operations": {
+          "entitySetName": "dma_opeartions",
+          "logicalName": "dma_opeartion",
+          "isHidden": false
+        },
+        "patientexperiences": {
+          "entitySetName": "dma_patientexperiences",
+          "logicalName": "dma_patientexperience",
+          "isHidden": false
+        },
+        "patientflowentries": {
+          "entitySetName": "dma_patientflowentries",
+          "logicalName": "dma_patientflowentry",
+          "isHidden": false
+        },
+        "patientflowsummaries": {
+          "entitySetName": "dma_patientflowsummaries",
+          "logicalName": "dma_patientflowsummary",
+          "isHidden": false
+        },
+        "subcategories": {
+          "entitySetName": "hx_subcategories",
+          "logicalName": "hx_subcategory",
+          "isHidden": false
+        },
+        "users": {
+          "entitySetName": "systemusers",
+          "logicalName": "systemuser",
+          "isHidden": false
+        }
+      },
+      "environmentVariableName": ""
+    }
+  }
+}

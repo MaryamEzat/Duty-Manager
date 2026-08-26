@@ -1,0 +1,652 @@
+{
+  "name": "dma_patientflowsummary",
+  "title": "Patient Flow Summaries",
+  "schema": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "x-ms-dataverse-entity": true,
+      "x-ms-dataverse-entityset": "dma_patientflowsummaries",
+      "x-ms-dataverse-primary-id": "dma_patientflowsummaryid",
+      "x-ms-dataverse-primary-name": "dma_name",
+      "properties": {
+        "createdby": {
+          "type": "string",
+          "title": "Created By",
+          "x-ms-dataverse-attribute": "createdby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "CreatedBy",
+          "x-ms-read-only": true
+        },
+        "createdbyname": {
+          "type": "string",
+          "title": "createdbyname",
+          "x-ms-dataverse-attribute": "createdbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "createdbyyominame": {
+          "type": "string",
+          "title": "createdbyyominame",
+          "x-ms-dataverse-attribute": "createdbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "createdon": {
+          "type": "string",
+          "title": "Created On",
+          "x-ms-dataverse-attribute": "createdon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "CreatedOn",
+          "x-ms-read-only": true
+        },
+        "createdonbehalfby": {
+          "type": "string",
+          "title": "Created By (Delegate)",
+          "x-ms-dataverse-attribute": "createdonbehalfby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "CreatedOnBehalfBy",
+          "x-ms-read-only": true
+        },
+        "createdonbehalfbyname": {
+          "type": "string",
+          "title": "createdonbehalfbyname",
+          "x-ms-dataverse-attribute": "createdonbehalfbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedOnBehalfByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "createdonbehalfbyyominame": {
+          "type": "string",
+          "title": "createdonbehalfbyyominame",
+          "x-ms-dataverse-attribute": "createdonbehalfbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedOnBehalfByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "dma_admissions": {
+          "type": "string",
+          "title": "Admissions",
+          "x-ms-dataverse-attribute": "dma_admissions",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_Admissions"
+        },
+        "dma_cancelledorcases": {
+          "type": "string",
+          "title": "Cancelled OR Cases",
+          "x-ms-dataverse-attribute": "dma_cancelledorcases",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_CancelledORCases"
+        },
+        "dma_ccuutilization": {
+          "type": "string",
+          "title": "CCU Utilization",
+          "x-ms-dataverse-attribute": "dma_ccuutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_CCUUtilization"
+        },
+        "dma_closeddama": {
+          "type": "string",
+          "title": "Closed DAMA",
+          "x-ms-dataverse-attribute": "dma_closeddama",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ClosedDAMA"
+        },
+        "dma_closeddamaretention": {
+          "type": "string",
+          "title": "Closed DAMA Retention",
+          "x-ms-dataverse-attribute": "dma_closeddamaretention",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ClosedDAMARetention"
+        },
+        "dma_cxutilization": {
+          "type": "string",
+          "title": "CX Utilization",
+          "x-ms-dataverse-attribute": "dma_cxutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_CXUtilization"
+        },
+        "dma_delayeddischargescount": {
+          "type": "string",
+          "title": "Delayed Discharges Count ",
+          "x-ms-dataverse-attribute": "dma_delayeddischargescount",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_DelayedDischargesCount"
+        },
+        "dma_delayeddischargesnarrative": {
+          "type": "string",
+          "title": "Delayed Discharges Narrative ",
+          "x-ms-dataverse-attribute": "dma_delayeddischargesnarrative",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "dma_DelayedDischargesNarrative",
+          "maxLength": 2000
+        },
+        "dma_discharges": {
+          "type": "string",
+          "title": "Discharges",
+          "x-ms-dataverse-attribute": "dma_discharges",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_Discharges"
+        },
+        "dma_eradmissions": {
+          "type": "string",
+          "title": "ER Admissions",
+          "x-ms-dataverse-attribute": "dma_eradmissions",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ERAdmissions"
+        },
+        "dma_erdama": {
+          "type": "string",
+          "title": "ER DAMA",
+          "x-ms-dataverse-attribute": "dma_erdama",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ERDAMA"
+        },
+        "dma_erdamaretention": {
+          "type": "string",
+          "title": "ER DAMA Retention",
+          "x-ms-dataverse-attribute": "dma_erdamaretention",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ERDAMARetention"
+        },
+        "dma_ervolume": {
+          "type": "string",
+          "title": "ER Volume",
+          "x-ms-dataverse-attribute": "dma_ervolume",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ERVolume"
+        },
+        "dma_icuutilization": {
+          "type": "string",
+          "title": "ICU Utilization",
+          "x-ms-dataverse-attribute": "dma_icuutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ICUUtilization"
+        },
+        "dma_inpdama": {
+          "type": "string",
+          "title": "INP DAMA",
+          "x-ms-dataverse-attribute": "dma_inpdama",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_INPDAMA"
+        },
+        "dma_inpdamaretention": {
+          "type": "string",
+          "title": "INP DAMA Retention",
+          "x-ms-dataverse-attribute": "dma_inpdamaretention",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_INPDAMARetention"
+        },
+        "dma_inputilization": {
+          "type": "string",
+          "title": "INP Utilization",
+          "x-ms-dataverse-attribute": "dma_inputilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_INPUtilization"
+        },
+        "dma_name": {
+          "type": "string",
+          "title": "Name",
+          "x-ms-dataverse-attribute": "dma_name",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "dma_Name",
+          "x-ms-dataverse-primary-name": true,
+          "required": true,
+          "maxLength": 850
+        },
+        "dma_nicuutilization": {
+          "type": "string",
+          "title": "NICU Utilization",
+          "x-ms-dataverse-attribute": "dma_nicuutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_NICUUtilization"
+        },
+        "dma_opdadmissions": {
+          "type": "string",
+          "title": "OPD Admissions",
+          "x-ms-dataverse-attribute": "dma_opdadmissions",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_OPDAdmissions"
+        },
+        "dma_patientflowsummaryid": {
+          "type": "string",
+          "title": "Patient Flow Summary",
+          "x-ms-dataverse-attribute": "dma_patientflowsummaryid",
+          "x-ms-dataverse-type": "UniqueidentifierType",
+          "x-ms-schema-name": "dma_PatientFlowSummaryId",
+          "x-ms-dataverse-primary-id": true,
+          "required": true,
+          "x-ms-keyType": "primary"
+        },
+        "dma_picuutilization": {
+          "type": "string",
+          "title": "PICU Utilization",
+          "x-ms-dataverse-attribute": "dma_picuutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_PICUUtilization"
+        },
+        "dma_planneddischargedescription": {
+          "type": "string",
+          "title": "Planned Discharge Description",
+          "x-ms-dataverse-attribute": "dma_planneddischargedescription",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "dma_PlannedDischargeDescription",
+          "maxLength": 2000
+        },
+        "dma_planneddischarges": {
+          "type": "string",
+          "title": "Planned Discharges ",
+          "x-ms-dataverse-attribute": "dma_planneddischarges",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_PlannedDischarges"
+        },
+        "dma_postoperative": {
+          "type": "string",
+          "title": "Post Operative",
+          "x-ms-dataverse-attribute": "dma_postoperative",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_PostOperative"
+        },
+        "dma_postponedorcases": {
+          "type": "string",
+          "title": "Postponed OR Cases",
+          "x-ms-dataverse-attribute": "dma_postponedorcases",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_PostponedORCases"
+        },
+        "dma_preoperative": {
+          "type": "string",
+          "title": "Pre Operative ",
+          "x-ms-dataverse-attribute": "dma_preoperative",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_PreOperative"
+        },
+        "dma_prolongederadmissionscount": {
+          "type": "string",
+          "title": "Prolonged ER Admissions Count",
+          "x-ms-dataverse-attribute": "dma_prolongederadmissionscount",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_ProlongedERAdmissionsCount"
+        },
+        "dma_prolongedernarrative": {
+          "type": "string",
+          "title": "Prolonged ER Narrative",
+          "x-ms-dataverse-attribute": "dma_prolongedernarrative",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "dma_ProlongedERNarrative",
+          "maxLength": 2000
+        },
+        "dma_reportid": {
+          "type": "string",
+          "title": "Report ID",
+          "x-ms-dataverse-attribute": "dma_reportid",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "dma_ReportID"
+        },
+        "dma_reportidname": {
+          "type": "string",
+          "title": "dma_reportidname",
+          "x-ms-dataverse-attribute": "dma_reportidname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "dma_ReportIDName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "dma_shiftstart": {
+          "type": "string",
+          "title": "Shift Start",
+          "x-ms-dataverse-attribute": "dma_shiftstart",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "dma_ShiftStart"
+        },
+        "dma_shortagetype": {
+          "type": "string",
+          "title": "Shortage Type",
+          "x-ms-dataverse-attribute": "dma_shortagetype",
+          "x-ms-dataverse-type": "PicklistType",
+          "x-ms-schema-name": "dma_ShortageType",
+          "enum": [
+            "Nursing",
+            "Medical",
+            "Support Staff "
+          ],
+          "x-ms-enum-values": [
+            778000000,
+            778000001,
+            778000002
+          ],
+          "Color": [
+            null,
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "f9082e27-3942-f111-88b5-000d3a4b5321",
+          "x-ms-isGlobal": true,
+          "x-ms-optionsetdisplayname": "Coverage Shortage",
+          "x-ms-optionSetType": "Picklist"
+        },
+        "dma_shortagetypename": {
+          "type": "string",
+          "title": "dma_shortagetypename",
+          "x-ms-dataverse-attribute": "dma_shortagetypename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "dma_shortagetypeName",
+          "x-ms-read-only": true
+        },
+        "dma_shortfallsummary": {
+          "type": "string",
+          "title": "Shortfall Summary",
+          "x-ms-dataverse-attribute": "dma_shortfallsummary",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "dma_ShortfallSummary",
+          "maxLength": 2000
+        },
+        "dma_staffadequacy": {
+          "type": "string",
+          "title": "Staff Adequacy",
+          "x-ms-dataverse-attribute": "dma_staffadequacy",
+          "x-ms-dataverse-type": "PicklistType",
+          "x-ms-schema-name": "dma_StaffAdequacy",
+          "enum": [
+            "Short",
+            "Adequate"
+          ],
+          "x-ms-enum-values": [
+            778000000,
+            778000001
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "b076eef3-3942-f111-88b5-000d3a4b5321",
+          "x-ms-isGlobal": true,
+          "x-ms-optionsetdisplayname": "Staff Adequacy",
+          "x-ms-optionSetType": "Picklist"
+        },
+        "dma_staffadequacyname": {
+          "type": "string",
+          "title": "dma_staffadequacyname",
+          "x-ms-dataverse-attribute": "dma_staffadequacyname",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "dma_staffadequacyName",
+          "x-ms-read-only": true
+        },
+        "dma_strokeutilization": {
+          "type": "string",
+          "title": "Stroke Utilization",
+          "x-ms-dataverse-attribute": "dma_strokeutilization",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_StrokeUtilization"
+        },
+        "dma_totalorcases": {
+          "type": "string",
+          "title": "Total OR cases",
+          "x-ms-dataverse-attribute": "dma_totalorcases",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_TotalORcases"
+        },
+        "dma_unplanneddischarges": {
+          "type": "string",
+          "title": "Unplanned Discharges ",
+          "x-ms-dataverse-attribute": "dma_unplanneddischarges",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "dma_UnplannedDischarges"
+        },
+        "importsequencenumber": {
+          "type": "string",
+          "title": "Import Sequence Number",
+          "x-ms-dataverse-attribute": "importsequencenumber",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "ImportSequenceNumber"
+        },
+        "modifiedby": {
+          "type": "string",
+          "title": "Modified By",
+          "x-ms-dataverse-attribute": "modifiedby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "ModifiedBy",
+          "x-ms-read-only": true
+        },
+        "modifiedbyname": {
+          "type": "string",
+          "title": "modifiedbyname",
+          "x-ms-dataverse-attribute": "modifiedbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "modifiedbyyominame": {
+          "type": "string",
+          "title": "modifiedbyyominame",
+          "x-ms-dataverse-attribute": "modifiedbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "modifiedon": {
+          "type": "string",
+          "title": "Modified On",
+          "x-ms-dataverse-attribute": "modifiedon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "ModifiedOn",
+          "x-ms-read-only": true
+        },
+        "modifiedonbehalfby": {
+          "type": "string",
+          "title": "Modified By (Delegate)",
+          "x-ms-dataverse-attribute": "modifiedonbehalfby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "ModifiedOnBehalfBy",
+          "x-ms-read-only": true
+        },
+        "modifiedonbehalfbyname": {
+          "type": "string",
+          "title": "modifiedonbehalfbyname",
+          "x-ms-dataverse-attribute": "modifiedonbehalfbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedOnBehalfByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "modifiedonbehalfbyyominame": {
+          "type": "string",
+          "title": "modifiedonbehalfbyyominame",
+          "x-ms-dataverse-attribute": "modifiedonbehalfbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedOnBehalfByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "overriddencreatedon": {
+          "type": "string",
+          "title": "Record Created On",
+          "x-ms-dataverse-attribute": "overriddencreatedon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "OverriddenCreatedOn"
+        },
+        "ownerid": {
+          "type": "string",
+          "title": "Owner",
+          "x-ms-dataverse-attribute": "ownerid",
+          "x-ms-dataverse-type": "OwnerType",
+          "x-ms-schema-name": "OwnerId",
+          "required": true
+        },
+        "owneridname": {
+          "type": "string",
+          "title": "owneridname",
+          "x-ms-dataverse-attribute": "owneridname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwnerIdName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owneridtype": {
+          "type": "string",
+          "title": "owneridtype",
+          "x-ms-dataverse-attribute": "owneridtype",
+          "x-ms-dataverse-type": "EntityNameType",
+          "x-ms-schema-name": "OwnerIdType",
+          "required": true
+        },
+        "owneridyominame": {
+          "type": "string",
+          "title": "owneridyominame",
+          "x-ms-dataverse-attribute": "owneridyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwnerIdYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owningbusinessunit": {
+          "type": "string",
+          "title": "Owning Business Unit",
+          "x-ms-dataverse-attribute": "owningbusinessunit",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningBusinessUnit",
+          "x-ms-read-only": true
+        },
+        "owningbusinessunitname": {
+          "type": "string",
+          "title": "owningbusinessunitname",
+          "x-ms-dataverse-attribute": "owningbusinessunitname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwningBusinessUnitName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owningteam": {
+          "type": "string",
+          "title": "Owning Team",
+          "x-ms-dataverse-attribute": "owningteam",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningTeam",
+          "x-ms-read-only": true
+        },
+        "owninguser": {
+          "type": "string",
+          "title": "Owning User",
+          "x-ms-dataverse-attribute": "owninguser",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningUser",
+          "x-ms-read-only": true
+        },
+        "statecode": {
+          "type": "string",
+          "title": "Status",
+          "x-ms-dataverse-attribute": "statecode",
+          "x-ms-dataverse-type": "StateType",
+          "x-ms-schema-name": "statecode",
+          "required": true,
+          "enum": [
+            "Active",
+            "Inactive"
+          ],
+          "x-ms-enum-values": [
+            0,
+            1
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "0f137dc2-3642-f111-88b5-7ced8d0a4e0c",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Status",
+          "x-ms-optionSetType": "State"
+        },
+        "statecodename": {
+          "type": "string",
+          "title": "statecodename",
+          "x-ms-dataverse-attribute": "statecodename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "statecodeName",
+          "x-ms-read-only": true
+        },
+        "statuscode": {
+          "type": "string",
+          "title": "Status Reason",
+          "x-ms-dataverse-attribute": "statuscode",
+          "x-ms-dataverse-type": "StatusType",
+          "x-ms-schema-name": "statuscode",
+          "enum": [
+            "Active",
+            "Inactive"
+          ],
+          "x-ms-enum-values": [
+            1,
+            2
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "19137dc2-3642-f111-88b5-7ced8d0a4e0c",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Status Reason",
+          "x-ms-optionSetType": "Status"
+        },
+        "statuscodename": {
+          "type": "string",
+          "title": "statuscodename",
+          "x-ms-dataverse-attribute": "statuscodename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "statuscodeName",
+          "x-ms-read-only": true
+        },
+        "timezoneruleversionnumber": {
+          "type": "string",
+          "title": "Time Zone Rule Version Number",
+          "x-ms-dataverse-attribute": "timezoneruleversionnumber",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "TimeZoneRuleVersionNumber"
+        },
+        "utcconversiontimezonecode": {
+          "type": "string",
+          "title": "UTC Conversion Time Zone Code",
+          "x-ms-dataverse-attribute": "utcconversiontimezonecode",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "UTCConversionTimeZoneCode"
+        },
+        "versionnumber": {
+          "type": "string",
+          "title": "Version Number",
+          "x-ms-dataverse-attribute": "versionnumber",
+          "x-ms-dataverse-type": "BigIntType",
+          "x-ms-schema-name": "VersionNumber",
+          "x-ms-read-only": true
+        }
+      },
+      "required": [
+        "createdbyyominame",
+        "createdonbehalfbyyominame",
+        "dma_name",
+        "dma_patientflowsummaryid",
+        "modifiedbyyominame",
+        "modifiedonbehalfbyyominame",
+        "ownerid",
+        "owneridname",
+        "owneridtype",
+        "owneridyominame",
+        "owningbusinessunitname",
+        "statecode"
+      ]
+    }
+  }
+}

@@ -188,13 +188,16 @@
           "x-ms-schema-name": "opd_Gender",
           "enum": [
             "Male",
-            "Female"
+            "Female",
+            "Both"
           ],
           "x-ms-enum-values": [
             989230000,
-            989230001
+            989230001,
+            769380001
           ],
           "Color": [
+            null,
             null,
             null
           ],

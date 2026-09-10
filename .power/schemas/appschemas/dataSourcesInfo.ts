@@ -5,10 +5,69 @@
  */
 
 export const dataSourcesInfo = {
+  "and_earlydischarge_ipdvisitses": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "and_earlydischarge_ipdvisitsid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
+  "and_earlydischarges": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "and_earlydischargeid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
+  "and_inpatientlists": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "and_inpatientlistid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
+  "calculaterollupfield": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "",
+    "dataSourceType": "Dataverse",
+    "apis": {
+      "CalculateRollupField": {
+        "path": "/api/data/v9.2/CalculateRollupField",
+        "method": "GET",
+        "parameters": [
+          {
+            "name": "Target",
+            "in": "query",
+            "required": true,
+            "type": "object"
+          },
+          {
+            "name": "FieldName",
+            "in": "query",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responseInfo": {
+          "200": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
   "cr301_ervisitses": {
     "tableId": "",
     "version": "",
     "primaryKey": "cr301_ervisitsid",
+    "dataSourceType": "Dataverse",
+    "apis": {}
+  },
+  "crad2_patientdischarges": {
+    "tableId": "",
+    "version": "",
+    "primaryKey": "crad2_patientdischargeid",
     "dataSourceType": "Dataverse",
     "apis": {}
   },

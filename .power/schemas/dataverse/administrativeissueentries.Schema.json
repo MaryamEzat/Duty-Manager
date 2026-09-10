@@ -135,6 +135,22 @@
           "x-ms-dataverse-type": "LookupType",
           "x-ms-schema-name": "dma_IPDPatients"
         },
+        "dma_ipdpatientsksa": {
+          "type": "string",
+          "title": "IPD Patients KSA",
+          "x-ms-dataverse-attribute": "dma_ipdpatientsksa",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "dma_IPDPatientsKSA"
+        },
+        "dma_ipdpatientsksaname": {
+          "type": "string",
+          "title": "dma_ipdpatientsksaname",
+          "x-ms-dataverse-attribute": "dma_ipdpatientsksaname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "dma_IPDPatientsKSAName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
         "dma_ipdpatientsname": {
           "type": "string",
           "title": "dma_ipdpatientsname",

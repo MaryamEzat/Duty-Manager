@@ -1,0 +1,985 @@
+{
+  "name": "and_inpatientlist",
+  "title": "Inpatient Lists",
+  "schema": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "x-ms-dataverse-entity": true,
+      "x-ms-dataverse-entityset": "and_inpatientlists",
+      "x-ms-dataverse-primary-id": "and_inpatientlistid",
+      "x-ms-dataverse-primary-name": "and_name",
+      "properties": {
+        "and_accdays": {
+          "type": "string",
+          "title": "Acc Days",
+          "x-ms-dataverse-attribute": "and_accdays",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_AccDays",
+          "maxLength": 100
+        },
+        "and_activities": {
+          "type": "string",
+          "title": "Activities",
+          "x-ms-dataverse-attribute": "and_activities",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Activities",
+          "x-ms-read-only": true,
+          "maxLength": 4000
+        },
+        "and_activitycount": {
+          "type": "string",
+          "title": "Activity Count",
+          "x-ms-dataverse-attribute": "and_activitycount",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_ActivityCount",
+          "x-ms-read-only": true
+        },
+        "and_activitycount_date": {
+          "type": "string",
+          "title": "Activity Count (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_activitycount_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_ActivityCount_Date",
+          "x-ms-read-only": true
+        },
+        "and_activitycount_state": {
+          "type": "string",
+          "title": "Activity Count (State)",
+          "x-ms-dataverse-attribute": "and_activitycount_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_ActivityCount_State",
+          "x-ms-read-only": true
+        },
+        "and_admissiondate": {
+          "type": "string",
+          "title": "Admission Date",
+          "x-ms-dataverse-attribute": "and_admissiondate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_AdmissionDate"
+        },
+        "and_admissiondays": {
+          "type": "string",
+          "title": "Admission Days ",
+          "x-ms-dataverse-attribute": "and_admissiondays",
+          "x-ms-dataverse-type": "DecimalType",
+          "x-ms-schema-name": "and_AdmissionDays",
+          "x-ms-read-only": true
+        },
+        "and_admissiondoctor": {
+          "type": "string",
+          "title": "Admission Doctor",
+          "x-ms-dataverse-attribute": "and_admissiondoctor",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_AdmissionDoctor",
+          "maxLength": 100
+        },
+        "and_age": {
+          "type": "string",
+          "title": "Age",
+          "x-ms-dataverse-attribute": "and_age",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Age",
+          "maxLength": 100
+        },
+        "and_bed": {
+          "type": "string",
+          "title": "Bed",
+          "x-ms-dataverse-attribute": "and_bed",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Bed",
+          "maxLength": 100
+        },
+        "and_bedid": {
+          "type": "string",
+          "title": "Bed ID",
+          "x-ms-dataverse-attribute": "and_bedid",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_BedID",
+          "maxLength": 100
+        },
+        "and_comments": {
+          "type": "string",
+          "title": "Comments",
+          "x-ms-dataverse-attribute": "and_comments",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Comments",
+          "maxLength": 100
+        },
+        "and_confirmationtime": {
+          "type": "string",
+          "title": "Confirmation Time ",
+          "x-ms-dataverse-attribute": "and_confirmationtime",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_ConfirmationTime"
+        },
+        "and_contract": {
+          "type": "string",
+          "title": "Contract",
+          "x-ms-dataverse-attribute": "and_contract",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Contract",
+          "maxLength": 100
+        },
+        "and_contractor": {
+          "type": "string",
+          "title": "Contractor",
+          "x-ms-dataverse-attribute": "and_contractor",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Contractor",
+          "maxLength": 100
+        },
+        "and_contractorclientenname": {
+          "type": "string",
+          "title": "ContractorClientEnName",
+          "x-ms-dataverse-attribute": "and_contractorclientenname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_ContractorClientEnName",
+          "maxLength": 100
+        },
+        "and_creationdate": {
+          "type": "string",
+          "title": "Creation Date",
+          "x-ms-dataverse-attribute": "and_creationdate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_CreationDate"
+        },
+        "and_diagnosis": {
+          "type": "string",
+          "title": "Diagnosis",
+          "x-ms-dataverse-attribute": "and_diagnosis",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Diagnosis",
+          "maxLength": 300
+        },
+        "and_difftowtime": {
+          "type": "string",
+          "title": "DiffTowTime",
+          "x-ms-dataverse-attribute": "and_difftowtime",
+          "x-ms-dataverse-type": "DecimalType",
+          "x-ms-schema-name": "and_DiffTowTime",
+          "x-ms-read-only": true
+        },
+        "and_dischargecondition": {
+          "type": "string",
+          "title": "Discharge Condition",
+          "x-ms-dataverse-attribute": "and_dischargecondition",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_DischargeCondition",
+          "maxLength": 100
+        },
+        "and_dischargesystemdate": {
+          "type": "string",
+          "title": "Discharge System Date",
+          "x-ms-dataverse-attribute": "and_dischargesystemdate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_DischargeSystemDate"
+        },
+        "and_docnumber": {
+          "type": "string",
+          "title": "Docnumber",
+          "x-ms-dataverse-attribute": "and_docnumber",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Docnumber",
+          "maxLength": 100
+        },
+        "and_entityid": {
+          "type": "string",
+          "title": "Entity ID",
+          "x-ms-dataverse-attribute": "and_entityid",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_EntityID",
+          "maxLength": 100
+        },
+        "and_entrylocation": {
+          "type": "string",
+          "title": "Entry Location",
+          "x-ms-dataverse-attribute": "and_entrylocation",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_EntryLocation",
+          "maxLength": 100
+        },
+        "and_financialdischargedate": {
+          "type": "string",
+          "title": "Financial Discharge Date",
+          "x-ms-dataverse-attribute": "and_financialdischargedate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_FinancialDischargeDate"
+        },
+        "and_flag": {
+          "type": "string",
+          "title": "Flag Patient",
+          "x-ms-dataverse-attribute": "and_flag",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Flag",
+          "maxLength": 100
+        },
+        "and_flagby": {
+          "type": "string",
+          "title": "Flag By",
+          "x-ms-dataverse-attribute": "and_flagby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_FlagBy"
+        },
+        "and_flagbyname": {
+          "type": "string",
+          "title": "and_flagbyname",
+          "x-ms-dataverse-attribute": "and_flagbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_FlagByName",
+          "x-ms-read-only": true,
+          "maxLength": 200
+        },
+        "and_flagbyyominame": {
+          "type": "string",
+          "title": "and_flagbyyominame",
+          "x-ms-dataverse-attribute": "and_flagbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_FlagByYomiName",
+          "x-ms-read-only": true,
+          "maxLength": 200
+        },
+        "and_flagon": {
+          "type": "string",
+          "title": "Flag on",
+          "x-ms-dataverse-attribute": "and_flagon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_Flagon"
+        },
+        "and_floor": {
+          "type": "string",
+          "title": "Floor",
+          "x-ms-dataverse-attribute": "and_floor",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Floor",
+          "maxLength": 100
+        },
+        "and_hasbed": {
+          "type": "string",
+          "title": "Has Bed",
+          "x-ms-dataverse-attribute": "and_hasbed",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_HasBed",
+          "maxLength": 100
+        },
+        "and_hourssincedischarge": {
+          "type": "string",
+          "title": "Hours Since Discharge",
+          "x-ms-dataverse-attribute": "and_hourssincedischarge",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_HoursSinceDischarge",
+          "maxLength": 100
+        },
+        "and_identificationvalue": {
+          "type": "string",
+          "title": "Identification value",
+          "x-ms-dataverse-attribute": "and_identificationvalue",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Identificationvalue",
+          "maxLength": 100
+        },
+        "and_inpatientlistid": {
+          "type": "string",
+          "title": "Inpatient List",
+          "x-ms-dataverse-attribute": "and_inpatientlistid",
+          "x-ms-dataverse-type": "UniqueidentifierType",
+          "x-ms-schema-name": "and_InpatientListId",
+          "x-ms-dataverse-primary-id": true,
+          "required": true,
+          "x-ms-keyType": "primary"
+        },
+        "and_insurancepend": {
+          "type": "string",
+          "title": "InsurancePend",
+          "x-ms-dataverse-attribute": "and_insurancepend",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_InsurancePend",
+          "x-ms-read-only": true
+        },
+        "and_insurancepend_date": {
+          "type": "string",
+          "title": "InsurancePend (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_insurancepend_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_InsurancePend_Date",
+          "x-ms-read-only": true
+        },
+        "and_insurancepend_state": {
+          "type": "string",
+          "title": "InsurancePend (State)",
+          "x-ms-dataverse-attribute": "and_insurancepend_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_InsurancePend_State",
+          "x-ms-read-only": true
+        },
+        "and_insurancerequests": {
+          "type": "string",
+          "title": "InsuranceRequests",
+          "x-ms-dataverse-attribute": "and_insurancerequests",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_InsuranceRequests"
+        },
+        "and_insurancerequestsname": {
+          "type": "string",
+          "title": "and_insurancerequestsname",
+          "x-ms-dataverse-attribute": "and_insurancerequestsname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_InsuranceRequestsName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "and_ishomemedication": {
+          "type": "string",
+          "title": "Is Home Medication",
+          "x-ms-dataverse-attribute": "and_ishomemedication",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_IsHomeMedication",
+          "maxLength": 100
+        },
+        "and_maxactiontime": {
+          "type": "string",
+          "title": "Max Action Time",
+          "x-ms-dataverse-attribute": "and_maxactiontime",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_MaxActionTime",
+          "x-ms-read-only": true
+        },
+        "and_maxactiontime_date": {
+          "type": "string",
+          "title": "Max Action Time (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_maxactiontime_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_MaxActionTime_Date",
+          "x-ms-read-only": true
+        },
+        "and_maxactiontime_state": {
+          "type": "string",
+          "title": "Max Action Time (State)",
+          "x-ms-dataverse-attribute": "and_maxactiontime_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_MaxActionTime_State",
+          "x-ms-read-only": true
+        },
+        "and_maxlosforresponse": {
+          "type": "string",
+          "title": "Extension Approved days ",
+          "x-ms-dataverse-attribute": "and_maxlosforresponse",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_MaxLOSForResponse",
+          "x-ms-read-only": true
+        },
+        "and_maxlosforresponse_date": {
+          "type": "string",
+          "title": "Extension Approved days  (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_maxlosforresponse_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_MaxLOSForResponse_Date",
+          "x-ms-read-only": true
+        },
+        "and_maxlosforresponse_state": {
+          "type": "string",
+          "title": "Extension Approved days  (State)",
+          "x-ms-dataverse-attribute": "and_maxlosforresponse_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_MaxLOSForResponse_State",
+          "x-ms-read-only": true
+        },
+        "and_medpend": {
+          "type": "string",
+          "title": "MedPend",
+          "x-ms-dataverse-attribute": "and_medpend",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_MedPend",
+          "x-ms-read-only": true
+        },
+        "and_medpend_date": {
+          "type": "string",
+          "title": "MedPend (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_medpend_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_MedPend_Date",
+          "x-ms-read-only": true
+        },
+        "and_medpend_state": {
+          "type": "string",
+          "title": "MedPend (State)",
+          "x-ms-dataverse-attribute": "and_medpend_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_MedPend_State",
+          "x-ms-read-only": true
+        },
+        "and_mobilenumber": {
+          "type": "string",
+          "title": "Mobile Number",
+          "x-ms-dataverse-attribute": "and_mobilenumber",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_MobileNumber",
+          "maxLength": 100
+        },
+        "and_name": {
+          "type": "string",
+          "title": "Patient Code ",
+          "x-ms-dataverse-attribute": "and_name",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Name",
+          "x-ms-dataverse-primary-name": true,
+          "required": true,
+          "maxLength": 850
+        },
+        "and_nationalityname": {
+          "type": "string",
+          "title": "Nationality Name",
+          "x-ms-dataverse-attribute": "and_nationalityname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_NationalityName",
+          "maxLength": 100
+        },
+        "and_nofpackages": {
+          "type": "string",
+          "title": "N. of Packages",
+          "x-ms-dataverse-attribute": "and_nofpackages",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_NofPackages",
+          "x-ms-read-only": true
+        },
+        "and_nofpackages_date": {
+          "type": "string",
+          "title": "N. of Packages (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_nofpackages_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_NofPackages_Date",
+          "x-ms-read-only": true
+        },
+        "and_nofpackages_state": {
+          "type": "string",
+          "title": "N. of Packages (State)",
+          "x-ms-dataverse-attribute": "and_nofpackages_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_NofPackages_State",
+          "x-ms-read-only": true
+        },
+        "and_note": {
+          "type": "string",
+          "title": "Note",
+          "x-ms-dataverse-attribute": "and_note",
+          "x-ms-dataverse-type": "MemoType",
+          "x-ms-schema-name": "and_Note",
+          "maxLength": 2000
+        },
+        "and_nursestation": {
+          "type": "string",
+          "title": "Nurse Station",
+          "x-ms-dataverse-attribute": "and_nursestation",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_NurseStation",
+          "maxLength": 100
+        },
+        "and_nursestationnew": {
+          "type": "string",
+          "title": "Nurse Station New",
+          "x-ms-dataverse-attribute": "and_nursestationnew",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_NurseStationNew",
+          "x-ms-read-only": true,
+          "maxLength": 4000
+        },
+        "and_offlinepreauthref": {
+          "type": "string",
+          "title": "Offlinepreauthref",
+          "x-ms-dataverse-attribute": "and_offlinepreauthref",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Offlinepreauthref",
+          "maxLength": 100
+        },
+        "and_patientcode": {
+          "type": "string",
+          "title": "Patient Code",
+          "x-ms-dataverse-attribute": "and_patientcode",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_PatientCode"
+        },
+        "and_patientcodename": {
+          "type": "string",
+          "title": "and_patientcodename",
+          "x-ms-dataverse-attribute": "and_patientcodename",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientCodeName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "and_patientcodenew": {
+          "type": "string",
+          "title": "Patient Code New",
+          "x-ms-dataverse-attribute": "and_patientcodenew",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_PatientCodeNew"
+        },
+        "and_patientcodenewname": {
+          "type": "string",
+          "title": "and_patientcodenewname",
+          "x-ms-dataverse-attribute": "and_patientcodenewname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientCodeNewName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "and_patientname": {
+          "type": "string",
+          "title": "Patient Name",
+          "x-ms-dataverse-attribute": "and_patientname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientName",
+          "maxLength": 100
+        },
+        "and_patienttype": {
+          "type": "string",
+          "title": "Patient Type",
+          "x-ms-dataverse-attribute": "and_patienttype",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientType",
+          "maxLength": 100
+        },
+        "and_physicaldischargedate": {
+          "type": "string",
+          "title": "Physical Discharge Date",
+          "x-ms-dataverse-attribute": "and_physicaldischargedate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_PhysicalDischargeDate"
+        },
+        "and_physiciandischargedate": {
+          "type": "string",
+          "title": "Physician Discharge Date",
+          "x-ms-dataverse-attribute": "and_physiciandischargedate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_PhysicianDischargeDate"
+        },
+        "and_referralnumber": {
+          "type": "string",
+          "title": "Referral number",
+          "x-ms-dataverse-attribute": "and_referralnumber",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Referralnumber",
+          "maxLength": 100
+        },
+        "and_remainingapprovaldays": {
+          "type": "string",
+          "title": "Balance",
+          "x-ms-dataverse-attribute": "and_remainingapprovaldays",
+          "x-ms-dataverse-type": "DecimalType",
+          "x-ms-schema-name": "and_RemainingApprovalDays",
+          "x-ms-read-only": true
+        },
+        "and_specialty": {
+          "type": "string",
+          "title": "Specialty",
+          "x-ms-dataverse-attribute": "and_specialty",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Specialty",
+          "maxLength": 100
+        },
+        "and_startdate": {
+          "type": "string",
+          "title": "Start Date",
+          "x-ms-dataverse-attribute": "and_startdate",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_StartDate"
+        },
+        "and_sumlosfororders": {
+          "type": "string",
+          "title": "SumLOSForOrders ",
+          "x-ms-dataverse-attribute": "and_sumlosfororders",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_SumLOSForOrders",
+          "x-ms-read-only": true
+        },
+        "and_sumlosfororders_date": {
+          "type": "string",
+          "title": "SumLOSForOrders  (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_sumlosfororders_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_SumLOSForOrders_Date",
+          "x-ms-read-only": true
+        },
+        "and_sumlosfororders_state": {
+          "type": "string",
+          "title": "SumLOSForOrders  (State)",
+          "x-ms-dataverse-attribute": "and_sumlosfororders_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_SumLOSForOrders_State",
+          "x-ms-read-only": true
+        },
+        "and_totalapproval": {
+          "type": "string",
+          "title": "Total Approval Days",
+          "x-ms-dataverse-attribute": "and_totalapproval",
+          "x-ms-dataverse-type": "DecimalType",
+          "x-ms-schema-name": "and_TotalApproval",
+          "x-ms-read-only": true
+        },
+        "and_totalpostedservices": {
+          "type": "string",
+          "title": "Total Posted Services",
+          "x-ms-dataverse-attribute": "and_totalpostedservices",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_TotalPostedServices",
+          "x-ms-read-only": true
+        },
+        "and_totalpostedservices_date": {
+          "type": "string",
+          "title": "Total Posted Services (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_totalpostedservices_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_TotalPostedServices_Date",
+          "x-ms-read-only": true
+        },
+        "and_totalpostedservices_state": {
+          "type": "string",
+          "title": "Total Posted Services (State)",
+          "x-ms-dataverse-attribute": "and_totalpostedservices_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_TotalPostedServices_State",
+          "x-ms-read-only": true
+        },
+        "and_totalrejectionservicess": {
+          "type": "string",
+          "title": "Total Rejection Services",
+          "x-ms-dataverse-attribute": "and_totalrejectionservicess",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_TotalRejectionServicess",
+          "x-ms-read-only": true
+        },
+        "and_totalrejectionservicess_date": {
+          "type": "string",
+          "title": "Total Rejection Services (Last Updated On)",
+          "x-ms-dataverse-attribute": "and_totalrejectionservicess_date",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "and_TotalRejectionServicess_Date",
+          "x-ms-read-only": true
+        },
+        "and_totalrejectionservicess_state": {
+          "type": "string",
+          "title": "Total Rejection Services (State)",
+          "x-ms-dataverse-attribute": "and_totalrejectionservicess_state",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "and_TotalRejectionServicess_State",
+          "x-ms-read-only": true
+        },
+        "and_visitid": {
+          "type": "string",
+          "title": "Visit ID",
+          "x-ms-dataverse-attribute": "and_visitid",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_VisitID",
+          "maxLength": 100
+        },
+        "createdby": {
+          "type": "string",
+          "title": "Created By",
+          "x-ms-dataverse-attribute": "createdby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "CreatedBy",
+          "x-ms-read-only": true
+        },
+        "createdbyname": {
+          "type": "string",
+          "title": "createdbyname",
+          "x-ms-dataverse-attribute": "createdbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "createdbyyominame": {
+          "type": "string",
+          "title": "createdbyyominame",
+          "x-ms-dataverse-attribute": "createdbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "createdon": {
+          "type": "string",
+          "title": "Created On",
+          "x-ms-dataverse-attribute": "createdon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "CreatedOn",
+          "x-ms-read-only": true
+        },
+        "createdonbehalfby": {
+          "type": "string",
+          "title": "Created By (Delegate)",
+          "x-ms-dataverse-attribute": "createdonbehalfby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "CreatedOnBehalfBy",
+          "x-ms-read-only": true
+        },
+        "createdonbehalfbyname": {
+          "type": "string",
+          "title": "createdonbehalfbyname",
+          "x-ms-dataverse-attribute": "createdonbehalfbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedOnBehalfByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "createdonbehalfbyyominame": {
+          "type": "string",
+          "title": "createdonbehalfbyyominame",
+          "x-ms-dataverse-attribute": "createdonbehalfbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "CreatedOnBehalfByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "importsequencenumber": {
+          "type": "string",
+          "title": "Import Sequence Number",
+          "x-ms-dataverse-attribute": "importsequencenumber",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "ImportSequenceNumber"
+        },
+        "modifiedby": {
+          "type": "string",
+          "title": "Modified By",
+          "x-ms-dataverse-attribute": "modifiedby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "ModifiedBy",
+          "x-ms-read-only": true
+        },
+        "modifiedbyname": {
+          "type": "string",
+          "title": "modifiedbyname",
+          "x-ms-dataverse-attribute": "modifiedbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "modifiedbyyominame": {
+          "type": "string",
+          "title": "modifiedbyyominame",
+          "x-ms-dataverse-attribute": "modifiedbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "modifiedon": {
+          "type": "string",
+          "title": "Modified On",
+          "x-ms-dataverse-attribute": "modifiedon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "ModifiedOn",
+          "x-ms-read-only": true
+        },
+        "modifiedonbehalfby": {
+          "type": "string",
+          "title": "Modified By (Delegate)",
+          "x-ms-dataverse-attribute": "modifiedonbehalfby",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "ModifiedOnBehalfBy",
+          "x-ms-read-only": true
+        },
+        "modifiedonbehalfbyname": {
+          "type": "string",
+          "title": "modifiedonbehalfbyname",
+          "x-ms-dataverse-attribute": "modifiedonbehalfbyname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedOnBehalfByName",
+          "x-ms-read-only": true,
+          "maxLength": 100
+        },
+        "modifiedonbehalfbyyominame": {
+          "type": "string",
+          "title": "modifiedonbehalfbyyominame",
+          "x-ms-dataverse-attribute": "modifiedonbehalfbyyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "ModifiedOnBehalfByYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "overriddencreatedon": {
+          "type": "string",
+          "title": "Record Created On",
+          "x-ms-dataverse-attribute": "overriddencreatedon",
+          "x-ms-dataverse-type": "DateTimeType",
+          "x-ms-schema-name": "OverriddenCreatedOn"
+        },
+        "ownerid": {
+          "type": "string",
+          "title": "Owner",
+          "x-ms-dataverse-attribute": "ownerid",
+          "x-ms-dataverse-type": "OwnerType",
+          "x-ms-schema-name": "OwnerId",
+          "required": true
+        },
+        "owneridname": {
+          "type": "string",
+          "title": "owneridname",
+          "x-ms-dataverse-attribute": "owneridname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwnerIdName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owneridtype": {
+          "type": "string",
+          "title": "owneridtype",
+          "x-ms-dataverse-attribute": "owneridtype",
+          "x-ms-dataverse-type": "EntityNameType",
+          "x-ms-schema-name": "OwnerIdType",
+          "required": true
+        },
+        "owneridyominame": {
+          "type": "string",
+          "title": "owneridyominame",
+          "x-ms-dataverse-attribute": "owneridyominame",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwnerIdYomiName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owningbusinessunit": {
+          "type": "string",
+          "title": "Owning Business Unit",
+          "x-ms-dataverse-attribute": "owningbusinessunit",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningBusinessUnit",
+          "x-ms-read-only": true
+        },
+        "owningbusinessunitname": {
+          "type": "string",
+          "title": "owningbusinessunitname",
+          "x-ms-dataverse-attribute": "owningbusinessunitname",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "OwningBusinessUnitName",
+          "x-ms-read-only": true,
+          "required": true,
+          "maxLength": 100
+        },
+        "owningteam": {
+          "type": "string",
+          "title": "Owning Team",
+          "x-ms-dataverse-attribute": "owningteam",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningTeam",
+          "x-ms-read-only": true
+        },
+        "owninguser": {
+          "type": "string",
+          "title": "Owning User",
+          "x-ms-dataverse-attribute": "owninguser",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "OwningUser",
+          "x-ms-read-only": true
+        },
+        "statecode": {
+          "type": "string",
+          "title": "Status",
+          "x-ms-dataverse-attribute": "statecode",
+          "x-ms-dataverse-type": "StateType",
+          "x-ms-schema-name": "statecode",
+          "required": true,
+          "enum": [
+            "Active",
+            "Inactive"
+          ],
+          "x-ms-enum-values": [
+            0,
+            1
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "d3f73c53-f467-f111-ab0b-000d3a39a2fc",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Status",
+          "x-ms-optionSetType": "State"
+        },
+        "statecodename": {
+          "type": "string",
+          "title": "statecodename",
+          "x-ms-dataverse-attribute": "statecodename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "statecodeName",
+          "x-ms-read-only": true
+        },
+        "statuscode": {
+          "type": "string",
+          "title": "Status Reason",
+          "x-ms-dataverse-attribute": "statuscode",
+          "x-ms-dataverse-type": "StatusType",
+          "x-ms-schema-name": "statuscode",
+          "enum": [
+            "Active",
+            "Inactive"
+          ],
+          "x-ms-enum-values": [
+            1,
+            2
+          ],
+          "Color": [
+            null,
+            null
+          ],
+          "x-ms-optionsetmetadataid": "ddf73c53-f467-f111-ab0b-000d3a39a2fc",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Status Reason",
+          "x-ms-optionSetType": "Status"
+        },
+        "statuscodename": {
+          "type": "string",
+          "title": "statuscodename",
+          "x-ms-dataverse-attribute": "statuscodename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "statuscodeName",
+          "x-ms-read-only": true
+        },
+        "timezoneruleversionnumber": {
+          "type": "string",
+          "title": "Time Zone Rule Version Number",
+          "x-ms-dataverse-attribute": "timezoneruleversionnumber",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "TimeZoneRuleVersionNumber"
+        },
+        "utcconversiontimezonecode": {
+          "type": "string",
+          "title": "UTC Conversion Time Zone Code",
+          "x-ms-dataverse-attribute": "utcconversiontimezonecode",
+          "x-ms-dataverse-type": "IntegerType",
+          "x-ms-schema-name": "UTCConversionTimeZoneCode"
+        },
+        "versionnumber": {
+          "type": "string",
+          "title": "Version Number",
+          "x-ms-dataverse-attribute": "versionnumber",
+          "x-ms-dataverse-type": "BigIntType",
+          "x-ms-schema-name": "VersionNumber",
+          "x-ms-read-only": true
+        }
+      },
+      "required": [
+        "and_inpatientlistid",
+        "and_name",
+        "createdbyyominame",
+        "createdonbehalfbyyominame",
+        "modifiedbyyominame",
+        "modifiedonbehalfbyyominame",
+        "ownerid",
+        "owneridname",
+        "owneridtype",
+        "owneridyominame",
+        "owningbusinessunitname",
+        "statecode"
+      ]
+    }
+  }
+}

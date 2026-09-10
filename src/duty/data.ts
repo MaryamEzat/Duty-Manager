@@ -1,8 +1,14 @@
 import {
+  And_earlydischarge_ipdvisitsesService,
+  And_earlydischargesService,
+  And_inpatientlistsService,
+  Crad2_patientdischargesService,
+  CalculateRollupFieldService,
   Dma_administrativeissueentriesService,
   Dma_administrativeissuesModel,
   Dma_administrativeissuesService,
   Dma_alertsService,
+  Dma_coverageshortagesService,
   Dma_eventcodesService,
   Dma_eventtypesService,
   Dma_handoverreportsModel,
@@ -45,6 +51,8 @@ export type FormState = {
   plannedDischarges: number
   unplannedDischarges: number
   discharges: number
+  delayedDischargesCount: number
+  prolongedERAdmissionsCount: number
   totalORCases: number
   preoperative: number
   postoperative: number
@@ -75,11 +83,11 @@ export type FormState = {
   nightSummary: string
 }
 
-export type PatientArea = 'ER' | 'IPD' | 'OPD_EG' | 'OPD_KSA'
+export type PatientArea = 'ER' | 'IPD' | 'IPD_KSA' | 'OPD_EG' | 'OPD_KSA'
 export type EventItem = { id: string; typeId: string; typeText: string; codeId: string; codeText: string; severity: Severity; desc: string; actions: string; area?: PatientArea; pName?: string; pCode?: string; pId?: string; dataverseId?: string }
-export type AdminIssue = { id: string; catId: string; catLabel: string; status: Resolution; desc: string; action: string; pendingDetails: string; carrySource?: string; dataverseId?: string }
+export type AdminIssue = { id: string; catId: string; catLabel: string; status: Resolution; desc: string; action: string; pendingDetails: string; area?: PatientArea; pName?: string; pCode?: string; pId?: string; carrySource?: string; dataverseId?: string }
 export type OpsIssue = { id: string; funcId: string; affectedId: string; issueId: string; statusId: Resolution; desc: string; pendingDetails: string; carrySource?: string; dataverseId?: string }
-export type DamaEntry = { id: string; damaType: 'ER' | 'INP' | 'Closed'; patientName: string; patientCode: string; reason: string; actionTaken: string; area?: PatientArea; pId?: string; dataverseId?: string }
+export type DamaEntry = { id: string; damaType: 'ER' | 'INP' | 'Closed'; patientName: string; patientCode: string; reason: string; actionTaken: string; retained: boolean; area?: PatientArea; pId?: string; dataverseId?: string }
 export type EarlyDischarge = { id: string; area: PatientArea; name: string; code: string; patientId: string; type: 'Planned' | 'Early'; reason: string }
 export type DraftRecord = FormState & { draftId: string; reportId: string; flowSummaryId: string; experienceId?: string; events: EventItem[]; adminIssues: AdminIssue[]; opsIssues: OpsIssue[]; damaEntries: DamaEntry[]; earlyDischarges?: EarlyDischarge[]; timestamp: string }
 
@@ -92,6 +100,7 @@ export const Services = {
   adminEntries: Dma_administrativeissueentriesService,
   flowEntries: Dma_patientflowentriesService,
   alerts: Dma_alertsService,
+  coverageShortages: Dma_coverageshortagesService,
   eventTypes: Dma_eventtypesService,
   eventCodes: Dma_eventcodesService,
   adminIssues: Dma_administrativeissuesService,
@@ -100,6 +109,11 @@ export const Services = {
   ipdPatients: Ipd_patientsService,
   opdPatients: Opd_patientsService,
   ksaPatients: Opd_ksapatientsesService,
+  earlyDischargeMasters: And_earlydischargesService,
+  earlyDischargePatients: And_earlydischarge_ipdvisitsesService,
+  inpatientList: And_inpatientlistsService,
+  patientDischarges: Crad2_patientdischargesService,
+  calculateRollup: CalculateRollupFieldService,
 }
 
 export const Models = {

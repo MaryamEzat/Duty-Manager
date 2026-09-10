@@ -1,15 +1,139 @@
 {
-  "name": "dma_hospitalevent",
-  "title": "Hospital Events",
+  "name": "and_earlydischarge_ipdvisits",
+  "title": "Early Discharge_IPDVisits",
   "schema": {
     "type": "array",
     "items": {
       "type": "object",
       "x-ms-dataverse-entity": true,
-      "x-ms-dataverse-entityset": "dma_hospitalevents",
-      "x-ms-dataverse-primary-id": "dma_hospitaleventid",
-      "x-ms-dataverse-primary-name": "dma_name",
+      "x-ms-dataverse-entityset": "and_earlydischarge_ipdvisitses",
+      "x-ms-dataverse-primary-id": "and_earlydischarge_ipdvisitsid",
+      "x-ms-dataverse-primary-name": "and_name",
       "properties": {
+        "and_cancellationreason": {
+          "type": "string",
+          "title": "Cancellation Reason",
+          "x-ms-dataverse-attribute": "and_cancellationreason",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_CancellationReason",
+          "maxLength": 300
+        },
+        "and_dischargetype": {
+          "type": "string",
+          "title": "Discharge Type",
+          "x-ms-dataverse-attribute": "and_dischargetype",
+          "x-ms-dataverse-type": "PicklistType",
+          "x-ms-schema-name": "and_DischargeType",
+          "enum": [
+            "Early",
+            "Planned"
+          ],
+          "x-ms-enum-values": [
+            1,
+            2
+          ],
+          "Color": [
+            "#f7baba",
+            "#75b3fa"
+          ],
+          "x-ms-optionsetmetadataid": "dbf63c53-f467-f111-ab0b-000d3a39a2fc",
+          "x-ms-isGlobal": false,
+          "x-ms-optionsetdisplayname": "Discharge Type",
+          "x-ms-optionSetType": "Picklist"
+        },
+        "and_dischargetypename": {
+          "type": "string",
+          "title": "and_dischargetypename",
+          "x-ms-dataverse-attribute": "and_dischargetypename",
+          "x-ms-dataverse-type": "VirtualType",
+          "x-ms-schema-name": "and_dischargetypeName",
+          "x-ms-read-only": true
+        },
+        "and_earlydischarge": {
+          "type": "string",
+          "title": "Early Discharge",
+          "x-ms-dataverse-attribute": "and_earlydischarge",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_EarlyDischarge"
+        },
+        "and_earlydischarge_ipdvisitsid": {
+          "type": "string",
+          "title": "Early Discharge_IPDVisits",
+          "x-ms-dataverse-attribute": "and_earlydischarge_ipdvisitsid",
+          "x-ms-dataverse-type": "UniqueidentifierType",
+          "x-ms-schema-name": "and_EarlyDischarge_IPDVisitsId",
+          "x-ms-dataverse-primary-id": true,
+          "required": true,
+          "x-ms-keyType": "primary"
+        },
+        "and_earlydischargename": {
+          "type": "string",
+          "title": "and_earlydischargename",
+          "x-ms-dataverse-attribute": "and_earlydischargename",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_EarlyDischargeName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "and_is_submitted": {
+          "type": "string",
+          "title": "Is submitted",
+          "x-ms-dataverse-attribute": "and_is_submitted",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Is_submitted",
+          "x-ms-read-only": true,
+          "maxLength": 4000
+        },
+        "and_name": {
+          "type": "string",
+          "title": "Name",
+          "x-ms-dataverse-attribute": "and_name",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_Name",
+          "x-ms-dataverse-primary-name": true,
+          "required": true,
+          "maxLength": 850
+        },
+        "and_patientcode": {
+          "type": "string",
+          "title": "Patient Code",
+          "x-ms-dataverse-attribute": "and_patientcode",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_PatientCode"
+        },
+        "and_patientcodename": {
+          "type": "string",
+          "title": "and_patientcodename",
+          "x-ms-dataverse-attribute": "and_patientcodename",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientCodeName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "and_patientdischarge": {
+          "type": "string",
+          "title": "Patient Discharge",
+          "x-ms-dataverse-attribute": "and_patientdischarge",
+          "x-ms-dataverse-type": "LookupType",
+          "x-ms-schema-name": "and_PatientDischarge"
+        },
+        "and_patientdischargename": {
+          "type": "string",
+          "title": "and_patientdischargename",
+          "x-ms-dataverse-attribute": "and_patientdischargename",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "and_PatientDischargeName",
+          "x-ms-read-only": true,
+          "maxLength": 850
+        },
+        "crda1_visitid": {
+          "type": "string",
+          "title": "Visit ID",
+          "x-ms-dataverse-attribute": "crda1_visitid",
+          "x-ms-dataverse-type": "StringType",
+          "x-ms-schema-name": "crda1_VisitID",
+          "maxLength": 100
+        },
         "createdby": {
           "type": "string",
           "title": "Created By",
@@ -71,218 +195,6 @@
           "x-ms-read-only": true,
           "required": true,
           "maxLength": 100
-        },
-        "dma_erpatient": {
-          "type": "string",
-          "title": "ER Patient",
-          "x-ms-dataverse-attribute": "dma_erpatient",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_ERPatient"
-        },
-        "dma_erpatientname": {
-          "type": "string",
-          "title": "dma_erpatientname",
-          "x-ms-dataverse-attribute": "dma_erpatientname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_ERPatientName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_eventcode": {
-          "type": "string",
-          "title": "Event Code",
-          "x-ms-dataverse-attribute": "dma_eventcode",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_EventCode"
-        },
-        "dma_eventcodename": {
-          "type": "string",
-          "title": "dma_eventcodename",
-          "x-ms-dataverse-attribute": "dma_eventcodename",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_EventCodeName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_eventlogtimestamp": {
-          "type": "string",
-          "title": "Event log timestamp ",
-          "x-ms-dataverse-attribute": "dma_eventlogtimestamp",
-          "x-ms-dataverse-type": "DateTimeType",
-          "x-ms-schema-name": "dma_eventlogtimestamp"
-        },
-        "dma_eventtime": {
-          "type": "string",
-          "title": "Event Time",
-          "x-ms-dataverse-attribute": "dma_eventtime",
-          "x-ms-dataverse-type": "DateTimeType",
-          "x-ms-schema-name": "dma_EventTime"
-        },
-        "dma_eventtype": {
-          "type": "string",
-          "title": "Event Type ",
-          "x-ms-dataverse-attribute": "dma_eventtype",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_EventType"
-        },
-        "dma_eventtypename": {
-          "type": "string",
-          "title": "dma_eventtypename",
-          "x-ms-dataverse-attribute": "dma_eventtypename",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_EventTypeName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_hospitaleventid": {
-          "type": "string",
-          "title": "Hospital Event",
-          "x-ms-dataverse-attribute": "dma_hospitaleventid",
-          "x-ms-dataverse-type": "UniqueidentifierType",
-          "x-ms-schema-name": "dma_HospitalEventId",
-          "x-ms-dataverse-primary-id": true,
-          "required": true,
-          "x-ms-keyType": "primary"
-        },
-        "dma_immediateactionstaken": {
-          "type": "string",
-          "title": "Immediate Actions Taken",
-          "x-ms-dataverse-attribute": "dma_immediateactionstaken",
-          "x-ms-dataverse-type": "MemoType",
-          "x-ms-schema-name": "dma_ImmediateActionsTaken",
-          "maxLength": 2000
-        },
-        "dma_incidentdescription": {
-          "type": "string",
-          "title": "Incident Description",
-          "x-ms-dataverse-attribute": "dma_incidentdescription",
-          "x-ms-dataverse-type": "MemoType",
-          "x-ms-schema-name": "dma_IncidentDescription",
-          "maxLength": 2000
-        },
-        "dma_ipdpatients": {
-          "type": "string",
-          "title": "IPD Patients",
-          "x-ms-dataverse-attribute": "dma_ipdpatients",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_IPDPatients"
-        },
-        "dma_ipdpatientsksa": {
-          "type": "string",
-          "title": "IPD Patients KSA",
-          "x-ms-dataverse-attribute": "dma_ipdpatientsksa",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_IPDPatientsKSA"
-        },
-        "dma_ipdpatientsksaname": {
-          "type": "string",
-          "title": "dma_ipdpatientsksaname",
-          "x-ms-dataverse-attribute": "dma_ipdpatientsksaname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_IPDPatientsKSAName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_ipdpatientsname": {
-          "type": "string",
-          "title": "dma_ipdpatientsname",
-          "x-ms-dataverse-attribute": "dma_ipdpatientsname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_IPDPatientsName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_name": {
-          "type": "string",
-          "title": "Name",
-          "x-ms-dataverse-attribute": "dma_name",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_Name",
-          "x-ms-dataverse-primary-name": true,
-          "required": true,
-          "maxLength": 850
-        },
-        "dma_opdpatienteg": {
-          "type": "string",
-          "title": "OPD Patient EG",
-          "x-ms-dataverse-attribute": "dma_opdpatienteg",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_OPDPatientEG"
-        },
-        "dma_opdpatientegname": {
-          "type": "string",
-          "title": "dma_opdpatientegname",
-          "x-ms-dataverse-attribute": "dma_opdpatientegname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_OPDPatientEGName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_opdpatientksa": {
-          "type": "string",
-          "title": "OPD Patient KSA",
-          "x-ms-dataverse-attribute": "dma_opdpatientksa",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_OPDPatientKSA"
-        },
-        "dma_opdpatientksaname": {
-          "type": "string",
-          "title": "dma_opdpatientksaname",
-          "x-ms-dataverse-attribute": "dma_opdpatientksaname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_OPDPatientKSAName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_reportid": {
-          "type": "string",
-          "title": "Report ID",
-          "x-ms-dataverse-attribute": "dma_reportid",
-          "x-ms-dataverse-type": "LookupType",
-          "x-ms-schema-name": "dma_ReportID"
-        },
-        "dma_reportidname": {
-          "type": "string",
-          "title": "dma_reportidname",
-          "x-ms-dataverse-attribute": "dma_reportidname",
-          "x-ms-dataverse-type": "StringType",
-          "x-ms-schema-name": "dma_ReportIDName",
-          "x-ms-read-only": true,
-          "maxLength": 850
-        },
-        "dma_severitylevel": {
-          "type": "string",
-          "title": "Severity Level ",
-          "x-ms-dataverse-attribute": "dma_severitylevel",
-          "x-ms-dataverse-type": "PicklistType",
-          "x-ms-schema-name": "dma_SeverityLevel",
-          "enum": [
-            "Low",
-            "Moderate",
-            "Major"
-          ],
-          "x-ms-enum-values": [
-            778000000,
-            778000001,
-            778000002
-          ],
-          "Color": [
-            "#fff2b3",
-            "#fcbe68",
-            "#f76565"
-          ],
-          "x-ms-optionsetmetadataid": "ef193022-7f41-f111-88b5-000d3a4b5321",
-          "x-ms-isGlobal": true,
-          "x-ms-optionsetdisplayname": "Severity Level ",
-          "x-ms-optionSetType": "Picklist"
-        },
-        "dma_severitylevelname": {
-          "type": "string",
-          "title": "dma_severitylevelname",
-          "x-ms-dataverse-attribute": "dma_severitylevelname",
-          "x-ms-dataverse-type": "VirtualType",
-          "x-ms-schema-name": "dma_severitylevelName",
-          "x-ms-read-only": true
         },
         "importsequencenumber": {
           "type": "string",
@@ -449,7 +361,7 @@
             null,
             null
           ],
-          "x-ms-optionsetmetadataid": "b03b3bec-173d-f111-88b4-000d3a39406a",
+          "x-ms-optionsetmetadataid": "bb22424d-f467-f111-ab0b-000d3a39a2fc",
           "x-ms-isGlobal": false,
           "x-ms-optionsetdisplayname": "Status",
           "x-ms-optionSetType": "State"
@@ -480,7 +392,7 @@
             null,
             null
           ],
-          "x-ms-optionsetmetadataid": "ba3b3bec-173d-f111-88b4-000d3a39406a",
+          "x-ms-optionsetmetadataid": "c522424d-f467-f111-ab0b-000d3a39a2fc",
           "x-ms-isGlobal": false,
           "x-ms-optionsetdisplayname": "Status Reason",
           "x-ms-optionSetType": "Status"
@@ -517,10 +429,10 @@
         }
       },
       "required": [
+        "and_earlydischarge_ipdvisitsid",
+        "and_name",
         "createdbyyominame",
         "createdonbehalfbyyominame",
-        "dma_hospitaleventid",
-        "dma_name",
         "modifiedbyyominame",
         "modifiedonbehalfbyyominame",
         "ownerid",

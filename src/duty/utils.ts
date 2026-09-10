@@ -11,11 +11,10 @@ export function initialForm(): FormState {
   let shift: Shift = 'Morning'
   if (date.getHours() >= 15 && date.getHours() < 23) shift = 'Evening'
   if (date.getHours() >= 23 || date.getHours() < 7) shift = 'Night'
-  if (shift === 'Night' && date.getHours() < 7) date.setDate(date.getDate() - 1)
   return {
     dmName: '', dmUserId: '', businessUnit: businessUnits[0]?.[0] || '', reportDate: toLocalInput(date), shift,
     hotIssues: '', staffAdequacy: '778000001', shortageTypes: [], shortfallSummary: '',
-    erVolume: 0, erAdmissions: 0, opdAdmissions: 0, admissions: 0, plannedDischarges: 0, unplannedDischarges: 0, discharges: 0,
+    erVolume: 0, erAdmissions: 0, opdAdmissions: 0, admissions: 0, plannedDischarges: 0, unplannedDischarges: 0, discharges: 0, delayedDischargesCount: 0, prolongedERAdmissionsCount: 0,
     totalORCases: 0, preoperative: 0, postoperative: 0, postponedORCases: 0, cancelledORCases: 0,
     erDama: 0, erDamaRetention: 0, inpDama: 0, inpDamaRetention: 0, closedDama: 0, closedDamaRetention: 0,
     inpUtilization: 0, icuUtilization: 0, ccuUtilization: 0, picuUtilization: 0, nicuUtilization: 0, cxUtilization: 0, strokeUtilization: 0,
@@ -166,6 +165,8 @@ function normalizeDraft(data: any): DraftRecord {
     plannedDischarges: planned,
     unplannedDischarges: unplanned,
     discharges: toNumber(data.discharges ?? data.totalDischarges ?? data.dis ?? base.discharges),
+    delayedDischargesCount: toNumber(data.delayedDischargesCount ?? base.delayedDischargesCount),
+    prolongedERAdmissionsCount: toNumber(data.prolongedERAdmissionsCount ?? base.prolongedERAdmissionsCount),
     totalORCases: toNumber(data.totalORCases ?? data.totalorcases ?? base.totalORCases),
     preoperative: toNumber(data.preoperative ?? base.preoperative),
     postoperative: toNumber(data.postoperative ?? base.postoperative),

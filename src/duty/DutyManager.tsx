@@ -1,15 +1,48 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Children, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   adminFallbackOptions, businessUnits, labelFor, resolutionOptions, serviceAffectedOptions, serviceFunctionalityOptions,
   opsIssueOptions, Services, severityOptions, shiftFromValue, shiftMap, shortageOptions, staffOptions,
   type AdminIssue, type DamaEntry, type DraftRecord, type EarlyDischarge, type EventItem, type FormState, type MainView, type OpsIssue, type PatientArea, type Resolution, type Severity, type Shift, type TabKey,
 } from './data'
-import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, reportCode, shortDate, shortTime, toLocalInput, unwrap, validate } from './utils'
+import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, reportCode, shortDate, shortTime, unwrap, validate } from './utils'
 
 type AlertRow = { id: string; title: string; description: string; severity: string; isRead: boolean; createdOn?: string; reportId?: string }
 
 type ReportBundle = { report: any; flow: any[]; flowEntries: any[]; events: any[]; admin: any[]; ops: any[]; experience: any[]; loading?: boolean }
 const governmentVisitOptions: [string, string][] = [['999740000', 'Yes'], ['999740001', 'No']]
+const outageFunctionalityOptions = serviceFunctionalityOptions.filter(([value]) => value !== '778000002')
+const compactLayoutStyles = `
+  .home-modern, .dashboard.command-dashboard { margin-top: 8px; }
+  .editor-shell, .workflow-page { margin-top: 14px; }
+  .home-hero { min-height: 108px; padding: 16px 26px; }
+  .page-title { margin-bottom: 16px; }
+  .page-title h1, .home-hero h1 { font-size: 30px; }
+  .home-section-head { margin: 12px 0 7px; align-items: center; }
+  .home-section-head h2 { font-size: 18px; }
+  .current-row { min-height: 60px; padding-top: 10px; padding-bottom: 10px; }
+  .current-row h3 { font-size: 14px; }
+  .current-row p { margin-top: 3px; font-size: 11px; }
+  .readiness-panel { padding: 14px 18px; }
+  .readiness-panel > small { margin-top: 8px; }
+  .readiness-panel > strong { font-size: 36px; }
+  .readiness-panel p { margin-bottom: 9px; }
+  .readiness-list { gap: 6px; }
+  .ready-row { font-size: 11px; }
+  .draft-strip { margin-top: 12px; padding: 10px 18px; }
+  .draft-strip .eyebrow { margin-bottom: 5px; }
+  .draft-row { padding: 7px 0; }
+  .modern-filter { width: auto; }
+  @media (min-width: 901px) {
+    .home-modern, .editor-shell, .workflow-page, .dashboard.command-dashboard {
+      width: min(1680px, calc(100vw - 320px));
+    }
+  }
+  @media (max-height: 820px) and (min-width: 901px) {
+    .home-modern, .dashboard.command-dashboard { margin-top: 4px; }
+    .editor-shell, .workflow-page { margin-top: 10px; }
+    .home-hero { min-height: 100px; padding-top: 14px; padding-bottom: 14px; }
+  }
+`
 
 export function DutyManager() {
   const [view, setView] = useState<MainView>('home')
@@ -27,6 +60,7 @@ export function DutyManager() {
   const [drafts, setDrafts] = useState<DraftRecord[]>([])
   const [reports, setReports] = useState<any[]>([])
   const [reportFilter, setReportFilter] = useState('all')
+  const [dutyManagerFilter, setDutyManagerFilter] = useState('all')
   const [reportPage, setReportPage] = useState(1)
   const [alerts, setAlerts] = useState<AlertRow[]>([])
   const [alertsOpen, setAlertsOpen] = useState(false)
@@ -38,9 +72,15 @@ export function DutyManager() {
   const [dashboard, setDashboard] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const autosaveInFlight = useRef(false)
 
   const discharges = form.discharges
-  const filteredReports = useMemo(() => reportFilter === 'all' ? reports : reports.filter((r) => String(r.dma_businessunit) === reportFilter), [reports, reportFilter])
+  const dutyManagerOptions = useMemo(() => Array.from(new Set(reports.map(displayName).filter((name) => name && name !== 'N/A'))).sort(), [reports])
+  const filteredReports = useMemo(() => reports.filter((report) => {
+    const matchesBusinessUnit = reportFilter === 'all' || String(report.dma_businessunit) === reportFilter
+    const matchesDutyManager = dutyManagerFilter === 'all' || displayName(report) === dutyManagerFilter
+    return matchesBusinessUnit && matchesDutyManager
+  }), [reports, reportFilter, dutyManagerFilter])
   const pagedReports = useMemo(() => filteredReports.slice((reportPage - 1) * 5, reportPage * 5), [filteredReports, reportPage])
   const totalReportPages = Math.max(1, Math.ceil(filteredReports.length / 5))
   const pendingItems = useMemo(() => [...adminIssues.filter((x) => x.status !== '778000001'), ...opsIssues.filter((x) => x.statusId !== '778000001')], [adminIssues, opsIssues])
@@ -69,7 +109,7 @@ export function DutyManager() {
     const timer = window.setTimeout(async () => {
       try {
         await persistGeneral(form, reportId)
-        const id = await persistFlow(form, adminIssues, reportId, flowSummaryId)
+        const id = await persistFlow(form, reportId, flowSummaryId)
         if (id !== flowSummaryId) setFlowSummaryId(id)
       } catch (error) {
         setMessage(`Draft database save failed: ${errorMessage(error)}`)
@@ -77,6 +117,18 @@ export function DutyManager() {
     }, 800)
     return () => window.clearTimeout(timer)
   }, [form, adminIssues, view, busy, reportId, flowSummaryId])
+
+  useEffect(() => {
+    if (view !== 'report' || busy || !reportId || !flowSummaryId) return
+    const timer = window.setTimeout(() => {
+      if (autosaveInFlight.current) return
+      autosaveInFlight.current = true
+      autosaveSections()
+        .catch((error) => setMessage(`Dataverse autosave failed: ${errorMessage(error)}`))
+        .finally(() => { autosaveInFlight.current = false })
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [events, adminIssues, opsIssues, damaEntries, form.complaintsCount, form.complaintsSummary, form.ovrsCount, form.ovrsSummary, form.govVisit, form.govSummary, view, busy, reportId, flowSummaryId])
 
   useEffect(() => {
     const saveBeforeLeave = () => { if (view === 'report') saveDraft(false) }
@@ -135,13 +187,14 @@ export function DutyManager() {
         return []
       })
       if (webRows.length) {
-        setReports(webRows)
+        const submittedRows = webRows.filter(isSubmittedReport)
+        setReports(submittedRows)
         setReportPage(1)
-        return
+        return submittedRows
       }
 
       const result = await Services.reports.getAll({
-        select: ['dma_handoverreportid', 'dma_name', 'dma_reportdate', 'dma_businessunit', 'dma_shifttype', 'dma_dmacknowledgmenttimestamp', 'createdon', '_dma_dutymanager_value'],
+        select: ['dma_handoverreportid', 'dma_name', 'dma_reportdate', 'dma_businessunit', 'dma_shifttype', 'dma_reportstatus', 'statecode', 'statuscode', 'dma_hotissues', 'dma_dmacknowledgmenttimestamp', 'createdon', '_dma_dutymanager_value'],
         filter,
         orderBy: ['createdon desc'],
         top: 100,
@@ -149,15 +202,21 @@ export function DutyManager() {
       const rows = list(result)
       if (!rows.length) {
         const broadResult = await Services.reports.getAll({ filter, orderBy: ['createdon desc'], top: 100 } as any)
-        setReports(list(broadResult))
+        const submittedRows = list(broadResult).filter(isSubmittedReport)
+        setReports(submittedRows)
+        setReportPage(1)
+        return submittedRows
       } else {
-        setReports(rows)
+        const submittedRows = rows.filter(isSubmittedReport)
+        setReports(submittedRows)
+        setReportPage(1)
+        return submittedRows
       }
-      setReportPage(1)
     } catch (error) {
       console.error('Error fetching recent reports', error)
       setReports([])
       setMessage('Could not fetch recent reports from Dataverse.')
+      throw error
     }
   }
   async function loadAlerts() {
@@ -192,18 +251,17 @@ export function DutyManager() {
     const businessUnit = form.businessUnit || baseForm.businessUnit
     const latestBuReport = latestReportForBusinessUnit(reports, businessUnit)
     const nextShift = latestBuReport ? nextShiftAfter(shiftFromValue(latestBuReport.dma_shifttype)) : baseForm.shift
-    const nextReportDate = latestBuReport ? nextReportDateFromPrevious(latestBuReport.dma_reportdate, nextShift) : baseForm.reportDate
-    const nextForm = { ...baseForm, dmName: form.dmName, dmUserId: form.dmUserId, businessUnit, shift: nextShift, reportDate: nextReportDate }
+    const nextForm = { ...baseForm, dmName: form.dmName, dmUserId: form.dmUserId, businessUnit, shift: nextShift }
     const nextDraftId = String(Date.now())
     setBusy(true)
     try {
       const nextReportId = await persistGeneral(nextForm, '')
       let nextFlowId = ''
-      let flowError = ''
       try {
-        nextFlowId = await persistFlow(nextForm, [], nextReportId, '')
+        nextFlowId = await persistFlow(nextForm, nextReportId, '')
       } catch (error) {
-        flowError = errorMessage(error)
+        await Services.reports.delete(cleanId(nextReportId)).catch(() => undefined)
+        throw new Error(`Patient-flow initialization failed and the draft was rolled back. ${errorMessage(error)}`)
       }
       setForm(nextForm)
       setEvents([])
@@ -218,7 +276,7 @@ export function DutyManager() {
       writeDraft({ form: nextForm, draftId: nextDraftId, reportId: nextReportId, flowSummaryId: nextFlowId, experienceId: '', events: [], adminIssues: [], opsIssues: [], damaEntries: [], earlyDischarges: [] }, true)
       setView('report')
       setTab('general')
-      setMessage(flowError ? `Shift report created, but patient flow initialization failed: ${flowError}` : 'Shift report initiated successfully.')
+      setMessage('Shift report and patient-flow summary created successfully.')
     } catch (error) {
       setMessage(`Could not initiate shift report: ${errorMessage(error)}`)
     } finally {
@@ -236,16 +294,6 @@ export function DutyManager() {
     if (shift === 'Morning') return 'Evening'
     if (shift === 'Evening') return 'Night'
     return 'Morning'
-  }
-
-  function nextReportDateFromPrevious(previousDate: string, nextShift: Shift) {
-    const date = previousDate ? new Date(previousDate) : new Date()
-    if (Number.isNaN(date.getTime())) return initialForm().reportDate
-    if (nextShift === 'Morning') date.setDate(date.getDate() + 1)
-    if (nextShift === 'Morning') date.setHours(7, 0, 0, 0)
-    if (nextShift === 'Evening') date.setHours(15, 0, 0, 0)
-    if (nextShift === 'Night') date.setHours(23, 0, 0, 0)
-    return toLocalInput(date)
   }
 
   function writeDraft(snapshot: { form: FormState; draftId: string; reportId: string; flowSummaryId: string; experienceId?: string; events: EventItem[]; adminIssues: AdminIssue[]; opsIssues: OpsIssue[]; damaEntries: DamaEntry[]; earlyDischarges: EarlyDischarge[] }, refresh = true) {
@@ -302,12 +350,13 @@ export function DutyManager() {
     }
   }
 
-  function showDashboard() {
+  function showDashboard(reportRows: any[] = reports) {
+    if (!Array.isArray(reportRows)) reportRows = reports
     if (view === 'report') saveDraft(true)
     const activeShift = form.shift
-    const submittedCount = reports.length
+    const submittedCount = reportRows.length
     const bus = businessUnits.map(([value, label]) => {
-      const report = reports.find((r) => String(r.dma_businessunit) === String(value) && shiftFromValue(r.dma_shifttype) === activeShift)
+      const report = reportRows.find((r) => String(r.dma_businessunit) === String(value) && shiftFromValue(r.dma_shifttype) === activeShift)
       const acknowledged = Boolean(report?.dma_dmacknowledgmenttimestamp)
       return {
         value,
@@ -331,7 +380,7 @@ export function DutyManager() {
       date: form.reportDate,
       shift: activeShift,
       bus,
-      reports,
+      reports: reportRows,
       metrics: [
         { key: 'major-incidents', label: 'Major incidents', value: majorIncidents, desc: majorIncidents ? 'Major event escalation active' : 'No major incidents', alert: majorIncidents > 0 },
         { key: 'submitted', label: 'Reports submitted', value: `${bus.filter((x) => x.report).length}/${bus.length}`, desc: pendingCount ? `${pendingCount} BUs pending` : 'All BUs submitted', alert: pendingCount > 0 },
@@ -352,12 +401,16 @@ export function DutyManager() {
     })
     setView('dashboard')
   }
+  async function refreshDashboard() {
+    const latestReports = await loadHomeReports()
+    showDashboard(latestReports || [])
+  }
   async function saveGeneral() {
     setBusy(true)
     try {
       const nextId = await persistGeneral(form, reportId)
       setReportId(nextId)
-      const nextFlowId = await persistFlow(form, adminIssues, nextId, flowSummaryId)
+      const nextFlowId = await persistFlow(form, nextId, flowSummaryId)
       setFlowSummaryId(nextFlowId)
       const id = draftId || String(Date.now())
       if (!draftId) setDraftId(id)
@@ -373,9 +426,109 @@ export function DutyManager() {
   }
 
   async function saveFlow(currentReportId = reportId) {
-    const id = await persistFlow(form, adminIssues, currentReportId, flowSummaryId)
+    const id = await persistFlow(form, currentReportId, flowSummaryId)
     setFlowSummaryId(id)
     return id
+  }
+console.log('completion', saveFlow)
+
+  async function autosaveSections() {
+    const report = cleanId(reportId)
+    const flow = cleanId(flowSummaryId)
+    if (!report || !flow) throw new Error('The draft report and patient-flow summary must exist before section data can be saved.')
+
+    let nextExperienceId = experienceId
+    const experienceData: any = compact({
+      dma_name: `${reportCode(form)} Experience`,
+      dma_escalatedcomplaints: form.complaintsCount,
+      dma_summaryofnewongoingcomplaints: form.complaintsSummary,
+      dma_escalatedovrs: form.ovrsCount,
+      dma_summaryofnewovrs: form.ovrsSummary,
+      dma_governmentalregulatoryvisits: form.govVisit === 'Yes' ? 999740000 : 999740001,
+      dma_authoritynamefindingssummary: form.govSummary,
+      'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`,
+    })
+    if (nextExperienceId) await Services.experience.update(cleanId(nextExperienceId), experienceData)
+    else {
+      nextExperienceId = resultId(await Services.experience.create(experienceData), 'dma_patientexperienceid')
+      setExperienceId(nextExperienceId)
+    }
+
+    const nextEvents = events.map((row) => ({ ...row }))
+    for (const event of nextEvents) {
+      const payload = compact(applyPatientBind({ dma_name: `${event.typeText} - ${event.codeText}`, dma_severitylevel: Number(event.severity), dma_incidentdescription: event.desc, dma_immediateactionstaken: event.actions, dma_eventlogtimestamp: new Date().toISOString(), 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`, 'dma_EventType@odata.bind': event.typeId ? `/dma_eventtypes(${cleanId(event.typeId)})` : undefined, 'dma_EventCode@odata.bind': event.codeId ? `/dma_eventcodes(${cleanId(event.codeId)})` : undefined }, event.area, event.pId)) as any
+      if (event.dataverseId) await Services.events.update(cleanId(event.dataverseId), payload)
+      else event.dataverseId = resultId(await Services.events.create(payload), 'dma_hospitaleventid')
+    }
+    if (nextEvents.some((row, index) => row.dataverseId !== events[index]?.dataverseId)) setEvents(nextEvents)
+
+    const nextAdmin = adminIssues.map((row) => ({ ...row }))
+    for (const issue of nextAdmin) {
+      const payload: any = compact(applyPatientBind({ dma_name: issue.catLabel, dma_description: issue.desc, dma_actiontaken: issue.action, dma_pendingissues: issue.pendingDetails, dma_count: 1, dma_resolutionstatus: Number(issue.status), 'dma_IssueID@odata.bind': issue.catId ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined, 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})` }, issue.area, issue.pId))
+      if (issue.dataverseId) await Services.adminEntries.update(cleanId(issue.dataverseId), payload)
+      else issue.dataverseId = resultId(await Services.adminEntries.create(payload), 'dma_administrativeissueentryid')
+    }
+    if (nextAdmin.some((row, index) => row.dataverseId !== adminIssues[index]?.dataverseId)) setAdminIssues(nextAdmin)
+
+    const nextOps = opsIssues.map((row) => ({ ...row }))
+    for (const issue of nextOps) {
+      const payload: any = compact({ dma_name: `${labelFor(serviceAffectedOptions, issue.affectedId)} - ${labelFor(opsIssueOptions, issue.issueId)}`, dma_servicefunctionality: Number(issue.funcId), dma_serviceaffected: Number(issue.affectedId), dma_typeofissue: Number(issue.issueId), dma_descriptionofissue: issue.desc, dma_resolutionstatus: Number(issue.statusId), dma_pendingissues: issue.pendingDetails, 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})` })
+      if (issue.dataverseId) await Services.ops.update(cleanId(issue.dataverseId), payload)
+      else issue.dataverseId = resultId(await Services.ops.create(payload), 'dma_opeartionid')
+    }
+    if (nextOps.some((row, index) => row.dataverseId !== opsIssues[index]?.dataverseId)) setOpsIssues(nextOps)
+
+    const nextDama = damaEntries.map((row) => ({ ...row }))
+    for (const entry of nextDama) {
+      const payload = compact(applyPatientBind({ dma_name: entry.patientName || 'DAMA Patient', dma_erdama: entry.damaType === 'ER' ? 1 : 0, dma_inpdama: entry.damaType === 'INP' ? 1 : 0, dma_reason: entry.reason, dma_actiontaken: entry.actionTaken, 'dma_PatientFlow@odata.bind': `/dma_patientflowsummaries(${flow})` }, entry.area || (entry.damaType === 'ER' ? 'ER' : 'IPD'), entry.pId)) as any
+      if (entry.dataverseId) await Services.flowEntries.update(cleanId(entry.dataverseId), payload)
+      else entry.dataverseId = resultId(await Services.flowEntries.create(payload), 'dma_patientflowentryid')
+    }
+    if (nextDama.some((row, index) => row.dataverseId !== damaEntries[index]?.dataverseId)) setDamaEntries(nextDama)
+
+    if (draftId) writeDraft({ form, draftId, reportId: report, flowSummaryId: flow, experienceId: nextExperienceId, events: nextEvents, adminIssues: nextAdmin, opsIssues: nextOps, damaEntries: nextDama, earlyDischarges }, false)
+  }
+
+  async function deleteSectionRow(kind: 'event' | 'admin' | 'ops' | 'dama', row: EventItem | AdminIssue | OpsIssue | DamaEntry) {
+    const labels = { event: 'hospital event', admin: 'administrative issue', ops: 'operations outage', dama: 'patient case' }
+    if (!window.confirm(`Delete this ${labels[kind]}? This action cannot be undone.`)) return
+    try {
+      if (row.dataverseId) {
+        if (kind === 'event') await Services.events.delete(cleanId(row.dataverseId))
+        if (kind === 'admin') await Services.adminEntries.delete(cleanId(row.dataverseId))
+        if (kind === 'ops') await Services.ops.delete(cleanId(row.dataverseId))
+        if (kind === 'dama') await Services.flowEntries.delete(cleanId(row.dataverseId))
+      }
+      if (kind === 'event') setEvents(events.filter((item) => item.id !== row.id))
+      if (kind === 'admin') setAdminIssues(adminIssues.filter((item) => item.id !== row.id))
+      if (kind === 'ops') setOpsIssues(opsIssues.filter((item) => item.id !== row.id))
+      if (kind === 'dama') setDamaEntries(damaEntries.filter((item) => item.id !== row.id))
+      setMessage('Record deleted from Dataverse.')
+    } catch (error) {
+      setMessage(`Dataverse delete failed: ${errorMessage(error)}`)
+    }
+  }
+
+  async function deleteDraft(id: string) {
+    const draft = getDrafts().find((item) => item.draftId === id)
+    if (!draft) return
+    if (!window.confirm('Delete this draft and all of its linked records? This action cannot be undone.')) return
+    try {
+      await Promise.all((draft.events || []).filter((row) => row.dataverseId).map((row) => Services.events.delete(cleanId(row.dataverseId))))
+      await Promise.all((draft.adminIssues || []).filter((row) => row.dataverseId).map((row) => Services.adminEntries.delete(cleanId(row.dataverseId))))
+      await Promise.all((draft.opsIssues || []).filter((row) => row.dataverseId).map((row) => Services.ops.delete(cleanId(row.dataverseId))))
+      await Promise.all((draft.damaEntries || []).filter((row) => row.dataverseId).map((row) => Services.flowEntries.delete(cleanId(row.dataverseId))))
+      if (draft.experienceId) await Services.experience.delete(cleanId(draft.experienceId))
+      if (draft.flowSummaryId) await Services.flow.delete(cleanId(draft.flowSummaryId))
+      if (draft.reportId) await deleteCoverageShortages(cleanId(draft.reportId))
+      if (draft.reportId) await Services.reports.delete(cleanId(draft.reportId))
+      localStorage.removeItem(`dm_handover_draft_${id}`)
+      setDrafts(getDrafts())
+      setMessage('Draft and linked Dataverse records deleted.')
+      await loadHomeReports()
+    } catch (error) {
+      setMessage(`Draft was not deleted: ${errorMessage(error)}`)
+    }
   }
 
   async function submitReport() {
@@ -387,7 +540,7 @@ export function DutyManager() {
     try {
       const id = await persistGeneral(form, reportId)
       setReportId(id)
-      const flowId = await persistFlow(form, adminIssues, id, flowSummaryId)
+      const flowId = await persistFlow(form, id, flowSummaryId)
       setFlowSummaryId(flowId)
       let nextExperienceId = experienceId
       const nextEvents = events.map((row) => ({ ...row }))
@@ -419,7 +572,7 @@ export function DutyManager() {
         }
       }
       for (const issue of nextAdmin) {
-        const payload: any = compact({ dma_name: issue.catLabel, dma_description: issue.desc, dma_actiontaken: issue.action, dma_pendingissues: issue.pendingDetails, dma_count: 1, dma_resolutionstatus: Number(issue.status), 'dma_IssueID@odata.bind': issue.catId ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined, 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})` })
+        const payload: any = compact(applyPatientBind({ dma_name: issue.catLabel, dma_description: issue.desc, dma_actiontaken: issue.action, dma_pendingissues: issue.pendingDetails, dma_count: 1, dma_resolutionstatus: Number(issue.status), 'dma_IssueID@odata.bind': issue.catId ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined, 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})` }, issue.area, issue.pId))
         if (issue.dataverseId) await Services.adminEntries.update(cleanId(issue.dataverseId), payload)
         else {
           issue.dataverseId = resultId(await Services.adminEntries.create(payload), 'dma_administrativeissueentryid')
@@ -442,7 +595,7 @@ export function DutyManager() {
           checkpoint()
         }
       }
-      await Services.reports.update(cleanId(id), { dma_reportstatus: 778000002, statecode: 1, statuscode: 2 } as any)
+      await Services.reports.update(cleanId(id), { dma_reportstatus: 778000002, statecode: 0, statuscode: 1 } as any)
       if (draftId) {
         localStorage.removeItem(`dm_handover_draft_${draftId}`)
         setDrafts(getDrafts())
@@ -489,7 +642,7 @@ export function DutyManager() {
     if (!id) return
     try {
       const api = getXrmWebApi()
-      const payload = { dma_dmacknowledgmenttimestamp: new Date().toISOString(), statecode: 1, statuscode: 2 } as any
+      const payload = { dma_dmacknowledgmenttimestamp: new Date().toISOString(), dma_reportstatus: 778000000, statecode: 0, statuscode: 1 } as any
       if (api) {
         await api.updateRecord('dma_handoverreport', cleanId(id), payload)
       } else {
@@ -526,10 +679,11 @@ export function DutyManager() {
   const headerCompletion = homeDraft ? draftCompletionPercent(homeDraft) : completionPercent
 
   return <div className="dm-app">
+    <style>{compactLayoutStyles}</style>
     <nav className={`app-rail ${showReportNav ? 'report-open' : 'entry-only'}`} aria-label="Duty Manager primary navigation">
       <div className="dm-mark">DM</div>
       <button className={view === 'home' ? 'active' : ''} onClick={() => leaveReport('home')} aria-label="Home / Shift Command" title="Home / Shift Command"><NavIcon name="home" /><span>Home</span></button>
-      <button className={view === 'dashboard' ? 'active' : ''} onClick={showDashboard} aria-label="Command Center" title="Command Center"><NavIcon name="dashboard" /><span>Dashboard</span></button>
+      <button className={view === 'dashboard' ? 'active' : ''} onClick={() => showDashboard()} aria-label="Command Center" title="Command Center"><NavIcon name="dashboard" /><span>Dashboard</span></button>
       <button className={view === 'report' && tab === 'general' ? 'active' : ''} onClick={() => openModule('general')} aria-label="General / Shift Identity" title="General / Shift Identity"><NavIcon name="identity" /><span>General</span></button>
       <button className={view === 'report' && tab === 'events' ? 'active' : ''} onClick={() => openModule('events')} aria-label="Hospital Events" title="Hospital Events"><NavIcon name="events" /><span>Events</span></button>
       <button className={view === 'report' && tab === 'admin' ? 'active' : ''} onClick={() => openModule('admin')} aria-label="Administrative Issues" title="Administrative Issues"><NavIcon name="admin" /><span>Admin</span></button>
@@ -550,9 +704,9 @@ export function DutyManager() {
       {!isWorkflow && <button className="alert-button" onClick={() => setAlertsOpen(true)}>Alerts <b>{alerts.filter((a) => !a.isRead).length}</b></button>}
     </header>
     {message && <div className="toast" onClick={() => setMessage('')}>{message}</div>}
-    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={(id: string) => { localStorage.removeItem(`dm_handover_draft_${id}`); setDrafts(getDrafts()) }} openReport={openReport} openModule={openModule} />}
-    {view === 'dashboard' && <Dashboard data={dashboard} refresh={showDashboard} />}
-    {view === 'report' && <Editor state={{ form, updateForm, tab, setTab, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents, adminIssues, setAdminIssues, opsIssues, setOpsIssues, damaEntries, setDamaEntries, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport }} />}
+    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} dutyManagerFilter={dutyManagerFilter} dutyManagerOptions={dutyManagerOptions} setDutyManagerFilter={(value: string) => { setDutyManagerFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={deleteDraft} openReport={openReport} />}
+    {view === 'dashboard' && <Dashboard data={dashboard} refresh={refreshDashboard} openReport={openReport} openIssue={(row: any) => { setView('report'); setTab(row.category === 'Administrative' ? 'admin' : 'ops') }} />}
+    {view === 'report' && <Editor state={{ form, updateForm, tab, setTab, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents: (next: EventItem[]) => { const removed = events.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('event', removed); else setEvents(next) }, adminIssues, setAdminIssues: (next: AdminIssue[]) => { const removed = adminIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('admin', removed); else setAdminIssues(next) }, opsIssues, setOpsIssues: (next: OpsIssue[]) => { const removed = opsIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('ops', removed); else setOpsIssues(next) }, damaEntries, setDamaEntries: (next: DamaEntry[]) => { const removed = damaEntries.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('dama', removed); else setDamaEntries(next) }, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport }} />}
     {view === 'submitted' && <Submitted form={form} events={events} opsIssues={opsIssues} pendingItems={pendingItems} openReport={() => reportId && openReport(reportId)} goHome={() => setView('home')} />}
     {alertsOpen && <AlertDrawer alerts={alerts} markAlertRead={markAlertRead} openReport={(id: string) => { openReport(id); setAlertsOpen(false) }} close={() => setAlertsOpen(false)} />}
     {selectedReport && <ReportModal bundle={selectedReport} close={() => setSelectedReport(null)} acknowledge={acknowledgeReport} />}
@@ -577,7 +731,7 @@ function NavIcon({ name }: { name: NavIconName }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{icons[name]}</svg>
 }
 
-function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, reportPage, totalReportPages, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport, openModule }: any) {
+function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, dutyManagerFilter, dutyManagerOptions, setDutyManagerFilter, reportPage, totalReportPages, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport }: any) {
   const activeDraft = drafts[0]
   const currentManager = activeDraft?.dmName || form.dmName || 'Duty Manager'
   const greeting = timeGreeting()
@@ -605,7 +759,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
         <h2>Current shift</h2>
         <p>Priority exceptions and named ownership for this handover.</p>
       </div>
-      <button className="btn primary" onClick={startShift}>Start Shift</button>
+      <button className="btn primary" onClick={() => activeDraft ? openDraft(activeDraft) : startShift()}>{activeDraft ? 'Continue report' : 'Start Shift'}</button>
     </div>
 
     <section className="home-current-grid">
@@ -616,7 +770,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
             <p>{activeDraft.dmName || currentManager} - draft saved {formatDate(activeDraft.timestamp)} - draft completion {activeDraftCompletion}%</p>
             <p>{attentionCount} draft readiness items require ownership before handover.</p>
           </div>
-          <button className="btn" onClick={() => openModule('summary')}>Review handover</button>
+          <button className="btn" onClick={() => openDraft(activeDraft)}>Open</button>
         </article> : <article className="current-row lead">
           <div>
             <h3>No current draft selected</h3>
@@ -633,7 +787,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
             </div>
             <span className={`status-token ${index === 0 ? 'warning' : 'critical'}`}>{index === 0 ? 'Action required' : 'Escalated'}</span>
             <div className="current-metric"><strong>{item.statusId || item.status || 'Open'}</strong><small>Next update due</small></div>
-            <button className="btn" onClick={() => openModule(item.affectedId ? 'ops' : item.catLabel ? 'admin' : 'summary')}>View issue</button>
+            <button className="btn" onClick={() => activeDraft && openDraft(activeDraft)}>Open report</button>
           </article>
         ))}
       </div>
@@ -653,7 +807,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
     {drafts.length > 0 && <section className="draft-strip">
       <div className="eyebrow">Unfinished drafts</div>
       {drafts.slice(0, 5).map((d: DraftRecord) => <div className="draft-row" key={d.draftId}>
-        <span>{labelFor(businessUnits, d.businessUnit)} - {d.shift || 'Morning'} - {formatDate(d.reportDate)}</span>
+        <span>{labelFor(businessUnits, d.businessUnit)} - {d.shift || 'Morning'} - {formatDate(d.reportDate)} - {d.dmName || 'Duty Manager'}</span>
         <div className="row-actions">
           <button className="btn danger small" onClick={() => deleteDraft(d.draftId)}>Delete</button>
           <button className="btn primary small" onClick={() => openDraft(d)}>Continue</button>
@@ -666,12 +820,21 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
         <h2>Recent handovers</h2>
         <p>Submitted handovers available for operational review.</p>
       </div>
-      <div className="home-filter modern-filter">
-        <strong>Business unit</strong>
-        <select value={reportFilter} onChange={(event) => setReportFilter(event.target.value)}>
-          <option value="all">All business units</option>
-          {businessUnits.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
+      <div className="home-filter modern-filter" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(190px, 1fr))', alignItems: 'end', gap: 12, width: 'min(520px, 100%)' }}>
+        <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+          <strong>Business unit</strong>
+          <select style={{ width: '100%', minWidth: 0 }} value={reportFilter} onChange={(event) => setReportFilter(event.target.value)}>
+            <option value="all">All business units</option>
+            {businessUnits.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+          <strong>Duty manager</strong>
+          <select style={{ width: '100%', minWidth: 0 }} value={dutyManagerFilter} onChange={(event) => setDutyManagerFilter(event.target.value)}>
+            <option value="all">All duty managers</option>
+            {dutyManagerOptions.map((name: string) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
       </div>
     </div>
 
@@ -725,16 +888,22 @@ function dateKey(value?: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function Dashboard({ data, refresh }: any) {
+function Dashboard({ data, refresh, openReport, openIssue }: any) {
   const [dateFilter, setDateFilter] = useState(data?.date?.slice(0, 10) || new Date().toISOString().slice(0, 10))
   const [shiftFilter, setShiftFilter] = useState(data?.shift || 'Morning')
   const [buFilter, setBuFilter] = useState('All')
+  const [dmFilter, setDmFilter] = useState('All')
+  const [queueFilter, setQueueFilter] = useState<'all' | 'incidents' | 'unresolved'>('all')
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState('')
+  const [exportStatus, setExportStatus] = useState('')
   const parsedDate = dateFilter ? new Date(dateFilter) : new Date()
   const dateText = parsedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   const reportPool = data?.reports?.length ? data.reports : (data?.bus || []).map((b: any) => b.report).filter(Boolean)
+  const dmOptions = Array.from(new Set(reportPool.map((report: any) => displayName(report)).filter((name: string) => name && name !== 'N/A'))).sort() as string[]
   const filteredReports = reportPool.filter((report: any) => {
     const reportDate = dateKey(report?.dma_reportdate || report?.createdon)
-    return reportDate === dateFilter && shiftFromValue(report?.dma_shifttype) === shiftFilter
+    return reportDate === dateFilter && shiftFromValue(report?.dma_shifttype) === shiftFilter && (dmFilter === 'All' || displayName(report) === dmFilter)
   })
   const busRows = businessUnits.map(([value, label]) => {
     const report = filteredReports.find((row: any) => String(row.dma_businessunit) === String(value))
@@ -751,20 +920,86 @@ function Dashboard({ data, refresh }: any) {
       escalation: report ? 'Not required' : fallback?.escalation || 'Submission overdue',
     }
   })
-  const visibleBus = busRows.filter((b: any) => buFilter === 'All' || b.label === buFilter)
-  const expectedCount = visibleBus.length || businessUnits.length
+  const visibleBus = busRows.filter((b: any) => (buFilter === 'All' || b.label === buFilter) && (dmFilter === 'All' || (b.report && b.dm === dmFilter)))
+  const expectedCount = visibleBus.length
   const pendingBus = visibleBus.filter((b: any) => b.status === 'unsubmitted')
   const acknowledged = visibleBus.filter((b: any) => b.status === 'acknowledged').length
   const submittedCount = visibleBus.filter((b: any) => b.report).length
   const majorCount = visibleBus.reduce((sum: number, b: any) => sum + Number(b.report?.dma_majorincidents || 0), 0)
-  const filteredAging = (data?.aging || []).filter((row: any) => buFilter === 'All' || row.bu === buFilter)
+  const filteredAging = (data?.aging || []).filter((row: any) => (buFilter === 'All' || row.bu === buFilter) && (dmFilter === 'All' || row.owner === dmFilter))
+  const incidentRows = filteredReports
+    .filter((report: any) => (buFilter === 'All' || labelFor(businessUnits, report.dma_businessunit) === buFilter) && Number(report.dma_majorincidents || 0) > 0)
+    .map((report: any) => ({ id: `incident-${report.dma_handoverreportid}`, reportId: report.dma_handoverreportid, issue: report.dma_name || 'Major incident report', bu: labelFor(businessUnits, report.dma_businessunit), owner: displayName(report), category: 'Major incident', age: 'Current shift' }))
+  const queueRows = queueFilter === 'incidents' ? incidentRows : filteredAging
+  const queueLabel = queueFilter === 'incidents' ? 'Showing major incidents' : queueFilter === 'unresolved' ? 'Showing unresolved issues' : 'Showing all issues'
   const blockerCount = Math.max(filteredAging.length, visibleBus.reduce((sum: number, b: any) => sum + Number(b.report?.dma_pendingissues || 0), 0))
   const actionRequired = pendingBus.length + blockerCount
-  const interventions = [
-    ...pendingBus.map((b: any) => ({ id: `bu-${b.value}`, title: `${b.label} handover overdue`, detail: `${b.escalation || 'Submission overdue'}`, cta: 'Review' })),
-    ...filteredAging.map((row: any) => ({ id: row.id, title: row.issue, detail: `${row.bu} - ${row.category} - ${row.age}`, cta: 'Open issue' })),
-  ].slice(0, 3)
   const unitsLabel = (buFilter === 'All' ? businessUnits.map(([, label]) => label) : [buFilter]).join(' - ')
+  function exportDashboardReport() {
+    const exportRows = filteredReports
+      .filter((report: any) => buFilter === 'All' || labelFor(businessUnits, report.dma_businessunit) === buFilter)
+      .map((report: any) => {
+        const created = report.createdon ? new Date(report.createdon) : null
+        const acknowledgedAt = report.dma_dmacknowledgmenttimestamp ? new Date(report.dma_dmacknowledgmenttimestamp) : null
+        const acknowledgmentMinutes = created && acknowledgedAt && !Number.isNaN(created.getTime()) && !Number.isNaN(acknowledgedAt.getTime())
+          ? Math.max(0, Math.round((acknowledgedAt.getTime() - created.getTime()) / 60000))
+          : ''
+        return {
+          'Report ID': report.dma_handoverreportid || '',
+          'Report Name': report.dma_name || '',
+          'Report Date/Time': report.dma_reportdate || '',
+          'Created Date/Time': report.createdon || '',
+          'Business Unit': labelFor(businessUnits, report.dma_businessunit),
+          'Shift': shiftFromValue(report.dma_shifttype),
+          'Duty Manager': displayName(report),
+          'Report Status': report.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted',
+          'Acknowledged Date/Time': report.dma_dmacknowledgmenttimestamp || '',
+          'Minutes to Acknowledge': acknowledgmentMinutes,
+          'Hot Issues': report.dma_hotissues || '',
+          'Major Incidents': report.dma_majorincidents || 0,
+          'Pending Issues': report.dma_pendingissues || 0,
+          'ER DAMA': report.dma_erdama || 0,
+          'INP DAMA': report.dma_inpdama || 0,
+        }
+      })
+    if (!exportRows.length) {
+      setExportStatus('No records match the selected filters.')
+      return
+    }
+    const columns = Object.keys(exportRows[0])
+    const escapeCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const csv = `\uFEFF${columns.map(escapeCell).join(',')}\r\n${exportRows.map((row: Record<string, unknown>) => columns.map((column) => escapeCell(row[column])).join(',')).join('\r\n')}`
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `duty-manager-operations-${dateFilter || 'all-dates'}-${shiftFilter.toLowerCase()}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500)
+    setExportStatus(`${exportRows.length} report${exportRows.length === 1 ? '' : 's'} exported.`)
+    window.setTimeout(() => setExportStatus(''), 4000)
+  }
+  async function syncDashboard() {
+    if (syncing) return
+    setSyncing(true)
+    setSyncError('')
+    try {
+      await refresh()
+    } catch (error) {
+      setSyncError(`Sync failed: ${errorMessage(error)}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+  function showQueue(filter: 'all' | 'incidents' | 'unresolved') {
+    setQueueFilter(filter)
+    window.setTimeout(() => document.getElementById('executive-issue-queue')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+  function handleQueueRow(row: any) {
+    if (row.reportId) openReport(row.reportId)
+    else openIssue(row)
+  }
   return <section className="dashboard command-dashboard">
     <div className="command-head">
       <div>
@@ -776,23 +1011,26 @@ function Dashboard({ data, refresh }: any) {
         <label><span>Date</span><input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} /></label>
         <label><span>Shift</span><select value={shiftFilter} onChange={(e) => setShiftFilter(e.target.value)}><option>Morning</option><option>Evening</option><option>Night</option></select></label>
         <label><span>Business units</span><select value={buFilter} onChange={(e) => setBuFilter(e.target.value)}><option>All</option>{businessUnits.map(([value, label]) => <option key={value}>{label}</option>)}</select></label>
-        <span className="updated-pill">Updated just now</span>
-        <button className="btn sync" onClick={refresh}>Sync now</button>
+        <label><span>Duty manager</span><select value={dmFilter} onChange={(e) => setDmFilter(e.target.value)}><option>All</option>{dmOptions.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <span className="updated-pill">Updated {data?.updated || 'not yet'}</span>
+        <button className="btn export-report" onClick={exportDashboardReport}>Export Excel</button>
+        <button className="btn sync" onClick={syncDashboard} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync now'}</button>
       </div>
     </div>
+    {(syncError || exportStatus) && <div className={`dashboard-action-status ${syncError ? 'error' : ''}`}>{syncError || exportStatus}</div>}
 
     <section className="command-signal-grid">
       <article className="signal-card dark">
         <small>System attention</small>
         <strong>{majorCount} major incidents</strong>
         <p>{majorCount ? 'Major event escalation active' : 'No major incidents'}</p>
-        <button>View incidents</button>
+        <button onClick={() => showQueue('incidents')}>View incidents</button>
       </article>
       <article className="signal-card">
         <small>Active blockers</small>
         <strong>{blockerCount} unresolved issues</strong>
         <p>{blockerCount ? `${blockerCount} issue${blockerCount === 1 ? '' : 's'} require ownership` : 'No active blockers require ownership'}</p>
-        <button>View unresolved issues</button>
+        <button onClick={() => showQueue('unresolved')}>View unresolved issues</button>
       </article>
       <article className="signal-card soft">
         <small>Reporting</small>
@@ -810,10 +1048,11 @@ function Dashboard({ data, refresh }: any) {
         <div className="network-head">
           <span>Unit / Duty Manager</span><span>Handover State</span><span>Staff</span><span>Incidents</span><span>Flow</span><span>Peak Capacity</span><span>ER DAMA</span><span>Pending</span>
         </div>
+        {visibleBus.length === 0 && <div className="network-filter-empty"><strong>No records found</strong><span>No business-unit reports match the selected date, shift, business unit, and duty manager filters.</span></div>}
         {visibleBus.map((b: any) => {
           const submittedRow = Boolean(b.report)
           const stateClass = b.status === 'acknowledged' ? 'ok' : b.status === 'submitted' ? 'info' : 'critical'
-          return <article className={`network-row ${b.status}`} key={b.value}>
+          return <article className={`network-row ${b.status}`} id={`network-row-${b.label}`} key={b.value}>
             <div><strong>{b.label}</strong><small>{submittedRow ? b.dm : `${shiftFilter} report not submitted`}</small></div>
             <span className={`status-token ${stateClass}`}>{b.status === 'unsubmitted' ? 'Report overdue' : b.statusLabel}</span>
             <b>{submittedRow ? 'Adequate' : 'Overdue by'}</b>
@@ -825,15 +1064,6 @@ function Dashboard({ data, refresh }: any) {
           </article>
         })}
       </section>
-      <aside className="command-intervention">
-        <div className="eyebrow">Intervention now</div>
-        <h2>Priority ownership</h2>
-        {interventions.length === 0 ? <div className="intervention-empty"><strong>Clear</strong><p>No active ownership interventions.</p></div> : interventions.map((item: any, index: number) => <div className="intervention-item" key={item.id || index}>
-          <strong>{String(index + 1).padStart(2, '0')} - {item.title}</strong>
-          <span>{item.detail}</span>
-          <button>{item.cta}</button>
-        </div>)}
-      </aside>
     </div>
 
     <section className="command-pipeline">
@@ -846,14 +1076,13 @@ function Dashboard({ data, refresh }: any) {
       <div className="action"><small>Action required</small><b>{actionRequired}</b></div>
     </section>
 
-    <section className="executive-queue">
+    <section className="executive-queue" id="executive-issue-queue">
       <div className="queue-head">
-        <div><div className="eyebrow">Aging & escalation</div><h2>Executive issue queue</h2><p>Showing all issues</p></div>
-        <button className="btn">View all unresolved issues</button>
+        <div><div className="eyebrow">Aging & escalation</div><h2>Executive issue queue</h2><p>{queueLabel}</p></div>
       </div>
       <table>
         <thead><tr><th>Issue</th><th>BU</th><th>Owner</th><th>Operational Status</th><th>Age</th><th>Action</th></tr></thead>
-        <tbody>{filteredAging.length ? filteredAging.map((row: any) => <tr key={row.id}><td>{row.issue}</td><td>{row.bu}</td><td>{row.owner}</td><td><span className="status-token warning">{row.category}</span></td><td>{row.age}</td><td><button className="btn small">Open issue</button></td></tr>) : <tr><td colSpan={6} className="empty-cell">No active unresolved issues.</td></tr>}</tbody>
+        <tbody>{queueRows.length ? queueRows.map((row: any) => <tr key={row.id}><td>{row.issue}</td><td>{row.bu}</td><td>{row.owner}</td><td><span className="status-token warning">{row.category}</span></td><td>{row.age}</td><td><button className="btn small" onClick={() => handleQueueRow(row)}>Open issue</button></td></tr>) : <tr><td colSpan={6} className="empty-cell">No records found for the selected filters.</td></tr>}</tbody>
       </table>
     </section>
   </section>
@@ -875,8 +1104,8 @@ function Editor({ state }: any) {
   const active = state.tab
   return <div className="editor-shell">
     <nav className="nav-tabs">{tabs.map(([key, label]) => <button key={key} className={active === key ? 'active' : ''} onClick={() => state.setTab(key)}>{label}</button>)}</nav>
-    {active === 'general' && <GeneralTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} saveGeneral={state.saveGeneral} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} />}
-    {active === 'events' && <EventsTab events={state.events} setEvents={state.setEvents} eventTypes={state.eventTypes} eventCodes={state.eventCodes} loadEventCodes={state.loadEventCodes} />}
+    {active === 'general' && <GeneralTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} />}
+    {active === 'events' && <EventsTab businessUnit={state.form.businessUnit} events={state.events} setEvents={state.setEvents} eventTypes={state.eventTypes} eventCodes={state.eventCodes} loadEventCodes={state.loadEventCodes} />}
     {active === 'admin' && <AdminTab form={state.form} updateForm={state.updateForm} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} adminCatalog={state.adminCatalog} />}
     {active === 'flow' && <FlowTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} discharges={state.discharges} damaEntries={state.damaEntries} setDamaEntries={state.setDamaEntries} earlyDischarges={state.earlyDischarges} setEarlyDischarges={state.setEarlyDischarges} />}
     {active === 'ops' && <OpsTab opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} />}
@@ -884,12 +1113,16 @@ function Editor({ state }: any) {
     {active === 'summary' && <SummaryTab form={state.form} updateForm={state.updateForm} completion={state.completion} pendingItems={state.pendingItems} submitReport={state.submitReport} busy={state.busy} />}
   </div>
 }
-function GeneralTab({ form, updateForm, reportId, saveGeneral, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab }: any) {
+function GeneralTab({ form, updateForm, reportId, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab }: any) {
   const [previousReport, setPreviousReport] = useState<any>(null)
   const [carryItems, setCarryItems] = useState<any[]>([])
   const [previousLoading, setPreviousLoading] = useState(false)
   const [previousMessage, setPreviousMessage] = useState('')
   const previousAcknowledged = Boolean(previousReport?.dma_dmacknowledgmenttimestamp)
+  const [reportDatePart = '', reportTimePart = ''] = String(form.reportDate || '').split('T')
+  function updateMobileReportDate(nextDate: string, nextTime: string) {
+    updateForm({ reportDate: `${nextDate || reportDatePart}T${nextTime || reportTimePart || '00:00'}` })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -973,13 +1206,14 @@ function GeneralTab({ form, updateForm, reportId, saveGeneral, searchUsers, user
   }
 
   return <main className="workflow-page general-page">
-    <PageTitle step="01" eyebrow="Shift Identity" title="General" subtitle="Confirm the reporting context and accept responsibility for the incoming shift." action={<button className="context-edit" onClick={saveGeneral}>Edit context</button>} />
+    <PageTitle step="01" eyebrow="Shift Identity" title="General" subtitle="Confirm the reporting context and accept responsibility for the incoming shift." />
     <section className="identity-card">
       <div className="identity-card-head"><span>Shift identity</span></div>
       <div className="identity-fields">
         <Field label="Duty Manager"><div className="lookup-wrap"><input value={form.dmName} onChange={(e) => searchUsers(e.target.value)} onBlur={() => setTimeout(() => setUserMatches([]), 150)} />{userMatches.length > 0 && <div className="lookup-results">{userMatches.map((u: any) => <button className="lookup-item" key={u.systemuserid} onClick={() => { updateForm({ dmName: u.fullname, dmUserId: u.systemuserid }); setUserMatches([]) }}>{u.fullname}</button>)}</div>}</div></Field>
         <SelectField label="Business Unit" value={form.businessUnit} options={businessUnits} onChange={(businessUnit: string) => updateForm({ businessUnit })} />
-        <Field label="Report Date"><input type="datetime-local" value={form.reportDate} onChange={(e) => updateForm({ reportDate: e.target.value })} /></Field>
+        <div className="desktop-report-date"><Field label="Report Date"><input type="datetime-local" value={form.reportDate} onChange={(e) => updateForm({ reportDate: e.target.value })} /></Field></div>
+        <div className="mobile-report-date"><Field label="Report Date"><input type="date" value={reportDatePart} onChange={(e) => updateMobileReportDate(e.target.value, reportTimePart)} /></Field><Field label="Report Time"><input type="time" value={reportTimePart.slice(0, 5)} onChange={(e) => updateMobileReportDate(reportDatePart, e.target.value)} /></Field></div>
         <Field label="Shift"><select value={form.shift} onChange={(e) => updateForm({ shift: e.target.value as Shift })}><option>Morning</option><option>Evening</option><option>Night</option></select></Field>
       </div>
     </section>
@@ -998,20 +1232,26 @@ function GeneralTab({ form, updateForm, reportId, saveGeneral, searchUsers, user
           </div>
         </div>
         <div className="carry-label">Carried forward responsibilities</div>
-        {previousLoading ? <div className="carry-row"><div><h3>Loading carried responsibilities</h3><p>Checking unresolved issues from the previous same-BU handover.</p></div><span className="status-token info">Loading</span><div><strong>Previous shift</strong><small>Source</small></div><button className="btn" disabled>Loading</button></div> : carryItems.length === 0 ? <div className="carry-row"><div><h3>No carried responsibilities found</h3><p>No unresolved administrative or operations issues were found on the previous same-BU handover.</p></div><span className="status-token ok">Clear</span><div><strong>Previous shift</strong><small>Source</small></div><button className="btn" disabled>None</button></div> : carryItems.map((item) => <div className="carry-row" key={item.id}><div><h3>{item.title}</h3><p>{item.description || item.pending || 'No details recorded.'}</p></div><span className="status-token warning">{item.kind === 'admin' ? 'Administrative' : 'Operations'}</span><div><strong>{item.age}</strong><small>{labelFor(resolutionOptions, item.status)}</small></div><button className="btn" disabled={carriedAlready(item)} onClick={() => carryForward(item)}>{carriedAlready(item) ? 'Carried' : 'Carry over'}</button></div>)}
-        <div className="carry-row"><div><h3>Dataverse report context</h3><p>Duty Manager, business unit, date and shift are saved using the original `dma_handoverreport` payload.</p></div><span className="status-token ok">In progress</span><div><strong>Live</strong><small>Data source</small></div><button className="btn" onClick={saveGeneral}>Save context</button></div>
+        {previousLoading ? <div className="carry-row"><div><h3>Loading carried responsibilities</h3><p>Checking unresolved issues from the previous same-BU handover.</p></div><span className="status-token info">Loading</span><div><strong>Previous shift</strong><small>Source</small></div><button className="btn" disabled>Loading</button></div> : carryItems.length === 0 ? <div className="carry-row"><div><h3>No carried responsibilities found</h3><p>No unresolved administrative or operations issues were found on the previous same-BU handover.</p></div><span className="status-token ok">Clear</span><div><strong>Previous shift</strong><small>Source</small></div></div> : carryItems.map((item) => <div className="carry-row" key={item.id}><div><h3>{item.title}</h3><p>{item.description || item.pending || 'No details recorded.'}</p></div><span className="status-token warning">{item.kind === 'admin' ? 'Administrative' : 'Operations'}</span><div><strong>{item.age}</strong><small>{labelFor(resolutionOptions, item.status)}</small></div><button className="btn" disabled={carriedAlready(item)} onClick={() => carryForward(item)}>{carriedAlready(item) ? 'Carried' : 'Carry over'}</button></div>)}
       </div>
       <aside className="takeover-state"><div className="eyebrow">Takeover state</div><h2>{previousAcknowledged ? 'Responsibility accepted' : 'Acknowledgment pending'}</h2><p>{previousAcknowledged ? 'Previous-shift context has been acknowledged. Carried items remain visible for ownership.' : 'Review and acknowledge the previous same-BU handover before responsibility transfer.'}</p><div className="takeover-check"><span>Reporting context</span><b>Complete</b></div><div className={previousAcknowledged ? 'takeover-check' : 'takeover-check warn'}><span>Previous handover</span><b>{previousAcknowledged ? 'Acknowledged' : previousReport ? 'Required' : 'Not found'}</b></div><div className={carryItems.length ? 'takeover-check warn' : 'takeover-check'}><span>Carried responsibility</span><b>{carryItems.length ? `${carryItems.length} item${carryItems.length === 1 ? '' : 's'}` : 'Clear'}</b></div></aside>
     </section>
   </main>
 }
 
-function EventsTab({ events, setEvents, eventTypes, eventCodes, loadEventCodes }: any) {
+function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, loadEventCodes }: any) {
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState<EventItem>({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: 'ER', pName: '', pCode: '', pId: '' })
-  const areaOptions = eventAreaOptions(draft.typeText)
-  const reset = () => setDraft({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: 'ER', pName: '', pCode: '', pId: '' })
-  const closeModal = () => { reset(); setAdding(false) }
+  const [validationError, setValidationError] = useState('')
+  const [draft, setDraft] = useState<EventItem>({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
+  const areaOptions = eventAreaOptions(draft.typeText, businessUnit)
+  const reset = () => setDraft({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
+  useEffect(() => {
+    setDraft((current) => {
+      const allowed = eventAreaOptions(current.typeText, businessUnit)
+      return allowed.some(([area]) => area === current.area) ? current : { ...current, area: allowed[0][0], pName: '', pCode: '', pId: '' }
+    })
+  }, [businessUnit])
+  const closeModal = () => { reset(); setValidationError(''); setAdding(false) }
   function editEvent(item: EventItem) {
     setDraft({ ...item, pCode: item.pCode || '' })
     if (item.typeId) loadEventCodes(item.typeId)
@@ -1020,11 +1260,14 @@ function EventsTab({ events, setEvents, eventTypes, eventCodes, loadEventCodes }
   function changeType(typeId: string) {
     const t = eventTypes.find((x: any) => x.dma_eventtypeid === typeId)
     const typeText = t?.dma_name || ''
-    const nextArea = eventAreaOptions(typeText)[0][0]
+    const nextArea = eventAreaOptions(typeText, businessUnit)[0][0]
     setDraft({ ...draft, typeId, typeText, codeId: '', codeText: '', area: nextArea, pName: '', pCode: '', pId: '' })
-    loadEventCodes(typeId)
+    if (typeId) loadEventCodes(typeId)
   }
   function save() {
+    const missing = [!draft.typeId && 'Critical Event Type', !draft.codeId && 'Specific Code', !draft.severity && 'Severity Level', !draft.area && 'Context (Area)', (!draft.pId || !draft.pName) && 'Patient Search', !draft.desc.trim() && 'Incident Description', !draft.actions.trim() && 'Immediate Actions Taken'].filter(Boolean)
+    if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
+    setValidationError('')
     const item = { ...draft, id: draft.id || `event-${Date.now()}`, typeText: draft.typeText || 'Event', codeText: draft.codeText || 'Code', pCode: draft.pCode || '' }
     setEvents(draft.id ? events.map((event: EventItem) => event.id === draft.id ? item : event) : [...events, item])
     closeModal()
@@ -1036,17 +1279,18 @@ function EventsTab({ events, setEvents, eventTypes, eventCodes, loadEventCodes }
     <PageTitle step="02" eyebrow="Clinical Situation Awareness" title="Hospital events" subtitle="Time-ordered clinical events, severity and accountable ownership." action={<button className="btn primary" onClick={() => setAdding(true)}>Log hospital event</button>} />
     {adding && <ModalShell title={draft.id ? 'Edit Hospital Event' : 'Add Hospital Event'} tone="event" onClose={closeModal}>
       <div className="grid report-grid two">
-        <Field label="Critical Event Type *"><select value={draft.typeId} onChange={(e) => changeType(e.target.value)}><option value="">Select</option>{eventTypes.map((x: any) => <option key={x.dma_eventtypeid} value={x.dma_eventtypeid}>{x.dma_name}</option>)}</select></Field>
-        <Field label="Specific Code *"><select value={draft.codeId} onChange={(e) => { const c = eventCodes.find((x: any) => x.dma_eventcodeid === e.target.value); setDraft({ ...draft, codeId: e.target.value, codeText: c?.dma_name || '' }) }}><option value="">Select</option>{eventCodes.map((x: any) => <option key={x.dma_eventcodeid} value={x.dma_eventcodeid}>{x.dma_name}</option>)}</select></Field>
+        <Field label="Critical Event Type *"><select value={draft.typeId} onChange={(e) => changeType(e.target.value)}><option value="" disabled hidden>Select</option>{eventTypes.map((x: any) => <option key={x.dma_eventtypeid} value={x.dma_eventtypeid}>{x.dma_name}</option>)}</select></Field>
+        <Field label="Specific Code *"><select className="dependent-select" value={draft.codeId} disabled={!draft.typeId} title={!draft.typeId ? 'Select a Critical Event Type first' : 'Select the specific event code'} onChange={(e) => { const c = eventCodes.find((x: any) => x.dma_eventcodeid === e.target.value); setDraft({ ...draft, codeId: e.target.value, codeText: c?.dma_name || '' }) }}><option value="" disabled hidden>{draft.typeId ? 'Select' : 'Select event type first'}</option>{eventCodes.map((x: any) => <option key={x.dma_eventcodeid} value={x.dma_eventcodeid}>{x.dma_name}</option>)}</select></Field>
         <SeverityBubbles value={draft.severity} onChange={(severity: Severity) => setDraft({ ...draft, severity })} />
         <Field label="Context (Area) *"><select value={draft.area || areaOptions[0][0]} onChange={(e) => setDraft({ ...draft, area: e.target.value as PatientArea, pName: '', pCode: '', pId: '' })}>{areaOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       </div>
       <div className="grid report-grid two">
-        <PatientLookup area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} />
-        <Field label="Patient Code"><input value={draft.pCode || ''} onChange={(e) => setDraft({ ...draft, pCode: e.target.value })} placeholder="Auto-filled from patient search" /></Field>
+        <PatientLookup key={draft.area || areaOptions[0][0]} area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} />
+        <Field label="Patient Code"><input className="auto-filled-input" value={draft.pCode || ''} readOnly aria-readonly="true" tabIndex={-1} placeholder="Auto-filled from patient search" /></Field>
       </div>
       <Field label="Incident Description *"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} placeholder="Details of the event..." /></Field>
       <Field label="Immediate Actions Taken *"><textarea value={draft.actions} onChange={(e) => setDraft({ ...draft, actions: e.target.value })} placeholder="Steps taken to mitigate issue..." /></Field>
+      {validationError && <div className="modal-validation" role="alert">{validationError}</div>}
       <div className="modal-actions"><button className="btn" onClick={closeModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Event' : 'Add Event'}</button></div>
     </ModalShell>}
     <section className="event-summary-strip"><div><small>Shift event register</small><b>{events.length}<span>events this shift</span></b></div><div><small>Severity distribution</small><p><i className="dot red" />Major {major}<i className="dot amber" />Moderate {moderate}<i className="dot green" />Low {low}</p></div><div><small>Operational state</small><b>{events.length}<span>active events</span></b></div></section>
@@ -1055,14 +1299,21 @@ function EventsTab({ events, setEvents, eventTypes, eventCodes, loadEventCodes }
   </main>
 }
 function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog }: any) {
-  const [draft, setDraft] = useState<AdminIssue>({ id: '', catId: adminCatalog[0]?.[0] || '', catLabel: adminCatalog[0]?.[1] || '', status: '778000000', desc: '', action: '', pendingDetails: '' })
+  const adminAreas = patientAreaOptions(form.businessUnit)
+  const [draft, setDraft] = useState<AdminIssue>({ id: '', catId: '', catLabel: '', status: '778000000', desc: '', action: '', pendingDetails: '', area: adminAreas[0][0], pName: '', pCode: '', pId: '' })
   const [adding, setAdding] = useState(false)
-  const delayed = adminIssues.filter((i: AdminIssue) => i.catLabel.toLowerCase().includes('discharge')).length
-  const prolonged = adminIssues.filter((i: AdminIssue) => i.catLabel.toLowerCase().includes('admission')).length
-  function resetAdminDraft() { setDraft({ id: '', catId: adminCatalog[0]?.[0] || '', catLabel: adminCatalog[0]?.[1] || '', status: '778000000', desc: '', action: '', pendingDetails: '' }) }
+  const [validationError, setValidationError] = useState('')
+  const delayed = form.delayedDischargesCount
+  const prolonged = form.prolongedERAdmissionsCount
+  useEffect(() => {
+    setDraft((current) => adminAreas.some(([area]) => area === current.area) ? current : { ...current, area: adminAreas[0][0], pName: '', pCode: '', pId: '' })
+  }, [form.businessUnit])
+  function resetAdminDraft() { setDraft({ id: '', catId: '', catLabel: '', status: '778000000', desc: '', action: '', pendingDetails: '', area: adminAreas[0][0], pName: '', pCode: '', pId: '' }) }
   function editAdminIssue(issue: AdminIssue) { setDraft({ ...issue }); setAdding(true) }
   function closeAdminModal() { resetAdminDraft(); setAdding(false) }
   function save() {
+    const missing = [!draft.catId && 'Issue Category', !draft.status && 'Resolution Status', !draft.area && 'Patient Area', (!draft.pId || !draft.pName) && 'Patient Search', draft.status !== '778000001' && !draft.pendingDetails.trim() && 'Summary / Pending Details'].filter(Boolean)
+    if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
     const catLabel = labelFor(adminCatalog, draft.catId)
     const item = { ...draft, id: draft.id || `admin-${Date.now()}`, catLabel }
     setAdminIssues(draft.id ? adminIssues.map((issue: AdminIssue) => issue.id === draft.id ? item : issue) : [...adminIssues, item])
@@ -1071,12 +1322,29 @@ function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog 
   return <main className="workflow-page admin-page"><PageTitle step="03" eyebrow="Operational Constraints" title="Administrative issues" subtitle="Delayed discharges, prolonged ER admissions and issue ownership." action={<button className="btn primary" onClick={() => setAdding(true)}>Log administrative issue</button>} />
     <section className="admin-metrics"><div><small>Current load</small><b>{adminIssues.length}<span>Open issues</span></b><p>active this shift</p></div><div><small>Operational pressure</small><div className="metric-cluster"><b>{delayed}<span>Delayed discharges</span></b><b>{prolonged}<span>Prolonged ER</span></b><b>{Math.max(0, adminIssues.length - delayed - prolonged)}<span>Other blockers</span></b></div></div><div><small>Duty Manager attention</small><b>{adminIssues.filter((i: AdminIssue) => i.status !== '778000001').length} actions due</b><p>Requires intervention before handover</p></div></section>
     <div className="inline-edit-fields"><Field label="Delayed discharge narrative"><textarea value={form.delayedDischargesNarrative} onChange={(e) => updateForm({ delayedDischargesNarrative: e.target.value })} /></Field><Field label="Prolonged ER narrative"><textarea value={form.prolongedERNarrative} onChange={(e) => updateForm({ prolongedERNarrative: e.target.value })} /></Field></div>
-    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" value={draft.catId} options={adminCatalog} onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /></div><Field label="Description"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><textarea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
-    <div className="admin-layout"><section className="issue-register"><div className="issue-head"><span>Issue / context</span><span>Owner</span><span>Operational state</span><span>Timing</span><span>Action</span></div>{adminIssues.length === 0 ? <DashedEmpty text="No administrative issues recorded yet." variant="register" /> : adminIssues.map((i: AdminIssue) => <article className="issue-row" key={i.id}><div><h3>{i.catLabel}</h3><p>{i.desc || 'No description entered'}</p></div><span>Duty Manager</span><span className="issue-state">{labelFor(resolutionOptions, i.status)}</span><span><b>Current shift</b><small>{i.pendingDetails || i.action || 'Active work'}</small></span><div className="row-actions compact"><button className="btn small" onClick={() => editAdminIssue(i)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete administrative issue" title="Delete" onClick={() => setAdminIssues(adminIssues.filter((x: AdminIssue) => x.id !== i.id))}>x</button></div></article>)}</section><aside className="intervention-panel"><div className="eyebrow">Intervention now</div><h2>Priority ownership</h2><p>{adminIssues.length ? 'Issues requiring the Duty Manager immediate attention.' : 'No priority administrative issues logged.'}</p>{adminIssues.slice(0, 3).map((i: AdminIssue, idx: number) => <div className="priority-item" key={i.id}><strong>{String(idx + 1).padStart(2, '0')} - {i.catLabel}</strong><span>{labelFor(resolutionOptions, i.status)}</span></div>)}</aside></div>
+    {adding && validationError && <div className="app-validation-toast" role="alert">{validationError}</div>}
+    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" value={draft.catId} options={adminCatalog} placeholder="Select" onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /><SelectField label="Patient Area *" value={draft.area || adminAreas[0][0]} options={adminAreas} onChange={(area: PatientArea) => setDraft({ ...draft, area, pName: '', pCode: '', pId: '' })} /><PatientLookup key={draft.area || adminAreas[0][0]} area={(draft.area || adminAreas[0][0]) as PatientArea} label="Patient Search *" value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} /></div><Field label="Description"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><textarea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" disabled={!draft.catId} onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
+    <div className="movement-head admin-timeline-head"><div><h2>Administrative issue timeline</h2></div><p>Current-shift constraints, ownership and follow-up.</p></div>
+    <section className="event-timeline admin-timeline">{adminIssues.length === 0 ? <Empty title="No administrative issues recorded" text="Administrative constraints logged during this shift will appear here." /> : adminIssues.map((i: AdminIssue, index: number) => <article className="timeline-row admin-timeline-row" key={i.id}>
+      <time>{String(index + 1).padStart(2, '0')}</time>
+      <span className={`timeline-dot ${i.status === '778000001' ? 'low' : 'warning'}`} />
+      <div><small>{labelFor(resolutionOptions, i.status)}</small><h3>{i.catLabel}</h3><p>{i.pName ? `${i.pName}${i.pCode ? ` (${i.pCode})` : ''} - ${i.area} - ` : ''}{i.desc || 'No description entered.'}</p></div>
+      <div className="timeline-owner"><b>{i.pendingDetails || i.action || (i.status === '778000001' ? 'Resolved' : 'Duty Manager follow-up')}</b><span>{i.status === '778000001' ? 'Resolution completed' : 'Duty Manager ownership'}</span></div>
+      <div className="row-actions compact"><button className="btn small" onClick={() => editAdminIssue(i)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete administrative issue" title="Delete" onClick={() => setAdminIssues(adminIssues.filter((x: AdminIssue) => x.id !== i.id))}>x</button></div>
+    </article>)}</section>
   </main>
 }
+function damaSummaryFromEntries(entries: DamaEntry[]): Partial<FormState> {
+  const count = (type: DamaEntry['damaType'], retainedOnly = false) => entries.filter((row) => row.damaType === type && (!retainedOnly || row.retained)).length
+  return {
+    erDama: count('ER'), erDamaRetention: count('ER', true),
+    inpDama: count('INP'), inpDamaRetention: count('INP', true),
+    closedDama: count('Closed'), closedDamaRetention: count('Closed', true),
+  }
+}
+
 function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaEntries, earlyDischarges, setEarlyDischarges }: any) {
-  const [entry, setEntry] = useState<DamaEntry>({ id: '', damaType: 'ER', patientName: '', patientCode: '', reason: '', actionTaken: '' })
+  const [entry, setEntry] = useState<DamaEntry>({ id: '', damaType: 'ER', patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false })
   const [editingFlow, setEditingFlow] = useState(false)
   const [retentionType, setRetentionType] = useState<DamaEntry['damaType'] | null>(null)
   const [addingEarlyDischarge, setAddingEarlyDischarge] = useState(false)
@@ -1084,10 +1352,17 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
   const [nightFlowStatus, setNightFlowStatus] = useState('')
   const [refreshingFlow, setRefreshingFlow] = useState(false)
   const [flowRefreshStatus, setFlowRefreshStatus] = useState('')
-  function addEntry(type: DamaEntry['damaType']) { setDamaEntries([...damaEntries, { ...entry, damaType: type, id: `dama-${Date.now()}` }]); setEntry({ id: '', damaType: type, patientName: '', patientCode: '', reason: '', actionTaken: '' }) }
+  function saveEntry(type: DamaEntry['damaType']) {
+    if (!entry.pId || !entry.patientName) return
+    const item: DamaEntry = { ...entry, damaType: type, id: entry.id || `dama-${Date.now()}`, actionTaken: entry.retained ? 'Retained' : 'Not retained' }
+    const rows = entry.id ? damaEntries.map((row: DamaEntry) => row.id === entry.id ? item : row) : [...damaEntries, item]
+    setDamaEntries(rows)
+    updateForm(damaSummaryFromEntries(rows))
+    setEntry({ id: '', damaType: type, patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false })
+    setRetentionType(null)
+  }
   function setEarlyRows(rows: EarlyDischarge[]) {
     setEarlyDischarges(rows)
-    if (form.shift === 'Night' && form.plannedDischarges !== rows.length) updateForm({ plannedDischarges: rows.length })
   }
   async function syncNightEarlyDischarges(showStatus = false) {
     if (form.shift !== 'Night') return
@@ -1140,6 +1415,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     }
   }
   async function deleteEarlyDischarge(row: EarlyDischarge) {
+    if (!window.confirm(`Remove ${row.name || 'this patient'} from tomorrow's discharge plan? This action cannot be undone.`)) return
     const rows = earlyDischarges.filter((item: EarlyDischarge) => item.id !== row.id)
     setEarlyRows(rows)
     if (!row.id.startsWith('local-')) {
@@ -1160,14 +1436,9 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
       setFlowRefreshStatus('Refreshing census...')
     }
     try {
-      const [censusValues, dischargeCount] = await Promise.all([
-        retrieveFlowCensusViaXrm(reportId),
-        retrieveTotalDischargesViaXrm(form),
-      ])
-      const patch: Partial<FormState> = { ...censusValues }
-      if (typeof dischargeCount === 'number') patch.discharges = dischargeCount
+      const patch = await retrievePatientFlowSummary(reportId)
       if (Object.keys(patch).length) updateForm(patch)
-      if (showStatus) setFlowRefreshStatus('Auto-refreshed from Dataverse.')
+      if (showStatus) setFlowRefreshStatus(Object.keys(patch).length ? 'Patient flow refreshed from Dataverse.' : 'No linked patient-flow summary was found.')
     } catch (error) {
       console.warn('Could not refresh patient flow counts', error)
       if (showStatus) setFlowRefreshStatus('Could not refresh auto-counts.')
@@ -1178,17 +1449,20 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
   useEffect(() => {
     if (!reportId || String(reportId).startsWith('local-')) return
     refreshAutoCounts(false)
-    const interval = window.setInterval(() => refreshAutoCounts(false), 10000)
-    return () => window.clearInterval(interval)
   }, [reportId, form.reportDate, form.shift])
   useEffect(() => {
     if (form.shift !== 'Night') return
     syncNightEarlyDischarges(false)
   }, [form.shift, form.reportDate])
+  useEffect(() => {
+    if (!nightFlowStatus) return
+    const timeout = window.setTimeout(() => setNightFlowStatus(''), 8000)
+    return () => window.clearTimeout(timeout)
+  }, [nightFlowStatus])
   const damaCounts = [
-    { type: 'ER' as DamaEntry['damaType'], label: 'ER', cases: form.erDama, retained: form.erDamaRetention },
-    { type: 'INP' as DamaEntry['damaType'], label: 'Inpatient', cases: form.inpDama, retained: form.inpDamaRetention },
-    { type: 'Closed' as DamaEntry['damaType'], label: 'Closed', cases: form.closedDama, retained: form.closedDamaRetention },
+    { type: 'ER' as DamaEntry['damaType'], label: 'ER', cases: damaEntries.filter((row: DamaEntry) => row.damaType === 'ER').length, retained: damaEntries.filter((row: DamaEntry) => row.damaType === 'ER' && row.retained).length },
+    { type: 'INP' as DamaEntry['damaType'], label: 'Inpatient', cases: damaEntries.filter((row: DamaEntry) => row.damaType === 'INP').length, retained: damaEntries.filter((row: DamaEntry) => row.damaType === 'INP' && row.retained).length },
+    { type: 'Closed' as DamaEntry['damaType'], label: 'Closed', cases: damaEntries.filter((row: DamaEntry) => row.damaType === 'Closed').length, retained: damaEntries.filter((row: DamaEntry) => row.damaType === 'Closed' && row.retained).length },
   ]
   const retentionTotal = damaCounts.reduce((sum, item) => sum + item.retained, 0)
   const flowStatus = form.staffAdequacy === '778000000' ? 'Pressure' : 'Stable'
@@ -1207,14 +1481,14 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
           <b>{form.admissions}<span>Total admissions</span></b>
           <b>{form.erAdmissions}<span>ER admissions <i className="auto-source-pill">Auto</i> - volume {form.erVolume}</span></b>
           <b>{form.opdAdmissions}<span>OPD admissions <i className="auto-source-pill">Auto</i></span></b>
-          <b>{form.erVolume}<span>Total ER volume</span></b>
+          <b className="er-volume-metric">{form.erVolume}<span>Total ER volume <a className="er-dashboard-link" href="https://app.powerbi.com/singleSignOn?experience=power-bi&ru=https%3A%2F%2Fapp.powerbi.com%2Fgroups%2F3f5475b1-b4ad-4bcd-8909-7c94862de69c%2Freports%2Fde88cd1b-5c29-4599-a594-57de388f3015%2Fb2d5c8b0b26932ebac9b%3Fexperience%3Dpower-bi%26noSignUpCheck%3D1" target="_blank" rel="noreferrer" aria-label="View ER dashboard in Power BI">↗ View</a></span></b>
         </div>
       </div>
       <div className="flow-status-cell flow-metrics">
         <small>Outbound</small>
         <div className="flow-metric-grid">
           <b>{discharges}<span>Total discharges <i className="auto-source-pill">Auto</i></span></b>
-          <b>{form.plannedDischarges}<span>Planned</span></b>
+          <b>{form.plannedDischarges}<span>Planned <i className="auto-source-pill">Auto</i></span></b>
           <b>{form.unplannedDischarges}<span>Unplanned</span></b>
         </div>
         <div className="net-flow">Admissions <span>{'->'}</span> In hospital <span>{'->'}</span> Discharges <strong>Net flow {form.admissions - discharges}</strong></div>
@@ -1228,7 +1502,8 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     {flowRefreshStatus && <div className="flow-refresh-note">{flowRefreshStatus}</div>}
     <div className="movement-head"><div><h2>Today's movement</h2></div><p>Throughput and exceptions requiring operational awareness.</p></div>
     <div className="flow-work-grid">
-      <section className="theatre-flow-card">
+      <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+        <section className="theatre-flow-card">
         <div className="flow-card-head">
           <h2>Theatre flow</h2>
           <span><strong>{form.totalORCases}</strong> total cases <em>Current shift</em></span>
@@ -1246,30 +1521,49 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
           </div>
           {!form.postponedORCases && !form.cancelledORCases && <p>No theatre activity recorded for this shift.</p>}
         </div>
-      </section>
-      <section className="retention-watch-card">
+        </section>
+        {form.shift === 'Night' && <NightDischargeCard form={form} earlyDischarges={earlyDischarges} status={nightFlowStatus} dismissStatus={() => setNightFlowStatus('')} refresh={() => syncNightEarlyDischarges(true)} add={() => { setNightFlowStatus(''); setAddingEarlyDischarge(true) }} remove={deleteEarlyDischarge} />}
+      </div>
+      <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+        <section className="retention-watch-card">
         <div className="flow-card-head">
           <h2>Retention watch</h2>
           <span>Log only when required</span>
         </div>
-        <div className="retention-table">
-          <div className="retention-head"><span>Area</span><span>Cases</span><span>Retained</span><span>Action</span></div>
-          {damaCounts.map((item) => <div className="retention-row" key={item.type}><strong>{item.label}</strong><span>{item.cases}</span><b>{item.retained}</b><button className="btn small" onClick={() => { setEntry({ ...entry, damaType: item.type }); setRetentionType(item.type) }}>Log patient</button></div>)}
+        <div className="retention-summary-grid">
+          {damaCounts.map((item) => <div className="retention-summary-item" key={item.type}><strong>{item.label}</strong><div><span><b>{item.cases}</b> cases</span><span><b>{item.retained}</b> retained</span></div><button className="btn small" onClick={() => { setEntry({ id: '', damaType: item.type, patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false }); setRetentionType(item.type) }}>Add case</button></div>)}
         </div>
+        {damaEntries.length > 0 && <div className="retention-table retention-case-register"><div className="retention-head"><span>Patient</span><span>Area</span><span>Status</span><span>Action</span></div>{damaEntries.map((row: DamaEntry) => <div className="retention-row" key={row.id}><strong>{row.patientName || row.patientCode}</strong><span>{row.damaType === 'INP' ? 'Inpatient' : row.damaType}</span><b>{row.retained ? 'Retained' : 'Case'}</b><button className="btn small" onClick={() => { setEntry({ ...row }); setRetentionType(row.damaType) }}>Edit</button></div>)}</div>}
         <p>Retained patients require active ownership before handover.</p>
-      </section>
+        </section>
+        {form.shift === 'Night' && <NightUtilizationCard form={form} />}
+      </div>
     </div>
-    {form.shift === 'Night' && <NightShiftFlowPanel form={form} earlyDischarges={earlyDischarges} status={nightFlowStatus} refresh={() => syncNightEarlyDischarges(true)} add={() => setAddingEarlyDischarge(true)} remove={deleteEarlyDischarge} />}
     {editingFlow && <FlowUpdateModal form={form} updateForm={updateForm} discharges={discharges} close={() => setEditingFlow(false)} />}
-    {retentionType && <RetentionPatientModal type={retentionType} entry={entry} setEntry={setEntry} addEntry={() => { addEntry(retentionType); setRetentionType(null) }} close={() => setRetentionType(null)} />}
+    {retentionType && <RetentionPatientModal businessUnit={form.businessUnit} type={retentionType} entry={entry} setEntry={setEntry} saveEntry={() => saveEntry(retentionType)} close={() => setRetentionType(null)} />}
     {addingEarlyDischarge && <EarlyDischargeModal save={saveEarlyDischarge} close={() => setAddingEarlyDischarge(false)} />}
   </main>
 }
 
 function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
+  const [validationError, setValidationError] = useState('')
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
+
   function toggleShortage(value: string) {
     const current = form.shortageTypes || []
     updateForm({ shortageTypes: current.includes(value) ? current.filter((item: string) => item !== value) : [...current, value] })
+  }
+
+  function saveFlowContext() {
+    if (form.staffAdequacy === '778000000') {
+      const missing = [!(form.shortageTypes || []).length && 'Coverage Shortage', !String(form.shortfallSummary || '').trim() && 'Shortfall Summary'].filter(Boolean)
+      if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
+    }
+    close()
   }
 
   return <div className="modal flow-popup-backdrop" role="dialog" aria-modal="true">
@@ -1278,6 +1572,7 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
         <div><h2>Update patient flow</h2><p>Update the current-shift patient flow values.</p></div>
         <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
+      <div className="flow-popup-body">
       <div className="flow-popup-section">Staff coverage</div>
       <div className="flow-popup-grid single">
         <label className="flow-popup-field"><span>Staff coverage</span><select value={form.staffAdequacy} onChange={(e) => updateForm({ staffAdequacy: e.target.value })}>{staffOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -1294,7 +1589,7 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
       </div>
       <div className="flow-popup-section">Outbound</div>
       <div className="flow-popup-grid">
-        <FlowNumber label="Planned discharges" value={form.plannedDischarges} onChange={(plannedDischarges) => updateForm({ plannedDischarges })} />
+        <FlowNumber label="Planned discharges" value={form.plannedDischarges} readOnly onChange={() => undefined} />
         <FlowNumber label="Unplanned discharges" value={form.unplannedDischarges} onChange={(unplannedDischarges) => updateForm({ unplannedDischarges })} />
         <FlowNumber label="Total discharges" value={discharges} readOnly onChange={() => undefined} />
       </div>
@@ -1318,9 +1613,11 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
           <FlowNumber label="Stroke utilization" value={form.strokeUtilization} onChange={(strokeUtilization) => updateForm({ strokeUtilization })} />
         </div>
       </>}
+      </div>
+      {validationError && <div className="flow-popup-validation" role="alert">{validationError}</div>}
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" onClick={close}>Save context</button>
+        <button className="btn primary" onClick={saveFlowContext}>Save context</button>
       </div>
     </div>
   </div>
@@ -1330,27 +1627,46 @@ function FlowNumber({ label, value, readOnly, onChange }: { label: string; value
   return <label className={`flow-popup-field ${readOnly ? 'auto-field' : ''}`}><span>{label}{readOnly && <i>Auto</i>}</span><input type="number" min="0" readOnly={readOnly} value={value} onChange={(e) => onChange(Number(e.target.value))} /></label>
 }
 
-function RetentionPatientModal({ type, entry, setEntry, addEntry, close }: any) {
-  const area = type === 'ER' ? 'ER' : 'IPD'
+function RetentionPatientModal({ businessUnit, type, entry, setEntry, saveEntry, close }: any) {
+  const area: PatientArea = type === 'ER' ? 'ER' : isKsaBusinessUnit(businessUnit) ? 'IPD_KSA' : 'IPD'
   const label = type === 'INP' ? 'inpatient' : String(type).toLowerCase()
   return <div className="modal flow-popup-backdrop" role="dialog" aria-modal="true">
     <div className="flow-popup retention-popup">
       <div className="flow-popup-head">
-        <div><h2>Log retention patient</h2><p>Record a patient retained in {label}.</p></div>
+        <div><h2>{entry.id ? 'Edit patient case' : 'Add patient case'}</h2><p>Record a patient case in {label} and update retention when it changes.</p></div>
+        <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
       <div className="flow-popup-stack">
-        <PatientLookup area={area} label="Patient / MRN" value={entry.damaType === type ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pId: p.id })} />
-        <Field label="Reason"><textarea value={entry.damaType === type ? entry.reason : ''} onChange={(e) => setEntry({ ...entry, damaType: type, reason: e.target.value, actionTaken: e.target.value })} placeholder="Reason for retention..." /></Field>
+        <PatientLookup key={area} area={area} label="Patient / MRN" value={entry.damaType === type && entry.area === area ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pId: p.id })} />
+        <Field label="Retained"><select value={entry.retained ? 'Yes' : 'No'} onChange={(e) => setEntry({ ...entry, damaType: type, retained: e.target.value === 'Yes' })}><option value="No">No - case only</option><option value="Yes">Yes - retained</option></select></Field>
+        <Field label="Case notes"><textarea value={entry.damaType === type ? entry.reason : ''} onChange={(e) => setEntry({ ...entry, damaType: type, reason: e.target.value })} placeholder="Reason, context or retention notes..." /></Field>
       </div>
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" onClick={addEntry}>Save patient</button>
+        <button className="btn primary" disabled={!entry.pId || !entry.patientName} onClick={saveEntry}>{entry.id ? 'Save changes' : 'Save patient'}</button>
       </div>
     </div>
   </div>
 }
 
-function NightShiftFlowPanel({ form, earlyDischarges, status, refresh, add, remove }: any) {
+function NightDischargeCard({ form, earlyDischarges, status, dismissStatus, refresh, add, remove }: any) {
+  return <section className="early-discharge-card">
+    <div className="flow-card-head">
+      <div><h2>Tomorrow's discharges</h2><span><strong>{earlyDischarges.length}</strong> patients for {targetDischargeDate(form.reportDate) || 'tomorrow'}</span></div>
+      <div className="night-flow-actions"><button className="btn small" onClick={refresh}>Refresh</button><button className="btn small primary" onClick={add}>Add patient</button></div>
+    </div>
+    {status && <div style={{ padding: '10px 18px 0' }} role="status"><span className="night-status-chip">{status}<button type="button" onClick={dismissStatus} aria-label="Dismiss discharge status" title="Dismiss" style={{ marginLeft: 10, padding: 0, border: 0, background: 'transparent', color: 'inherit', fontWeight: 900, cursor: 'pointer' }}>x</button></span></div>}
+    <div className="early-discharge-list">
+      {earlyDischarges.length === 0 ? <div className="early-discharge-empty"><strong>Build tomorrow's discharge list</strong><span>No patients are planned yet. Add an inpatient as an early or planned discharge.</span><button className="btn primary" onClick={add}>Add discharge patient</button></div> : earlyDischarges.map((row: EarlyDischarge) => <article className="early-discharge-row" key={row.id}>
+        <div><strong>{row.name || 'Unnamed patient'}</strong><p>{row.code || 'No MRN'} - {row.reason || 'No reason recorded'}</p></div>
+        <span className={`status-token ${row.type === 'Early' ? 'warning' : 'ok'}`}>{row.type}</span>
+        <button className="btn small danger icon-delete" aria-label="Delete discharge patient" title="Delete" onClick={() => remove(row)}>x</button>
+      </article>)}
+    </div>
+  </section>
+}
+
+function NightUtilizationCard({ form }: any) {
   const utilization = [
     ['Ward', form.inpUtilization, '51 beds'],
     ['ICU', form.icuUtilization, '21 beds'],
@@ -1360,41 +1676,41 @@ function NightShiftFlowPanel({ form, earlyDischarges, status, refresh, add, remo
     ['CPU', form.cxUtilization, '0 beds'],
     ['Stroke', form.strokeUtilization, '0 beds'],
   ]
-  return <section className="night-flow-panel">
-    <div className="night-flow-head">
-      <div><div className="eyebrow">Night shift planning</div><h2>Tomorrow discharge command</h2><p>Early and planned discharge ownership for the next day.</p></div>
-      <div className="night-flow-actions">{status && <span className="night-status-chip">{status}</span>}<button className="btn" onClick={refresh}>Refresh plan</button><button className="btn primary" onClick={add}>Add discharge patient</button></div>
+  return <aside className="night-util-card">
+    <div className="flow-card-head"><h2>Unit utilization</h2><span>Night review</span></div>
+    <div className="night-util-grid">
+      {utilization.map(([label, value, capacity]) => <div className="night-util-tile" key={String(label)}>
+        <small>{label}</small>
+        <b>{value}%</b>
+        <span>{capacity}</span>
+      </div>)}
     </div>
-    <div className="night-flow-grid">
-      <section className="early-discharge-card">
-        <div className="flow-card-head">
-          <h2>Early & planned discharges</h2>
-          <span><strong>{earlyDischarges.length}</strong> patients for {targetDischargeDate(form.reportDate) || 'tomorrow'}</span>
-        </div>
-        <div className="early-discharge-list">
-          {earlyDischarges.length === 0 ? <div className="early-discharge-empty"><strong>No patients added yet</strong><span>Patients planned for tomorrow discharge will appear here.</span></div> : earlyDischarges.map((row: EarlyDischarge) => <article className="early-discharge-row" key={row.id}>
-            <div><strong>{row.name || 'Unnamed patient'}</strong><p>{row.code || 'No MRN'} - {row.reason || 'No reason recorded'}</p></div>
-            <span className={`status-token ${row.type === 'Early' ? 'warning' : 'ok'}`}>{row.type}</span>
-            <button className="btn small danger icon-delete" aria-label="Delete discharge patient" title="Delete" onClick={() => remove(row)}>x</button>
-          </article>)}
-        </div>
-      </section>
-      <aside className="night-util-card">
-        <div className="flow-card-head"><h2>Unit utilization</h2><span>Night review</span></div>
-        <div className="night-util-grid">
-          {utilization.map(([label, value, capacity]) => <div className="night-util-tile" key={String(label)}>
-            <small>{label}</small>
-            <b>{value}%</b>
-            <span>{capacity}</span>
-          </div>)}
-        </div>
-      </aside>
-    </div>
-  </section>
+  </aside>
 }
 
 function EarlyDischargeModal({ save, close }: any) {
   const [draft, setDraft] = useState<{ type: EarlyDischarge['type'] | ''; patientCode: string; reason: string }>({ type: '', patientCode: '', reason: '' })
+  const [patientLookup, setPatientLookup] = useState<{ state: 'idle' | 'searching' | 'found' | 'missing' | 'error'; patient?: any; message?: string }>({ state: 'idle' })
+  useEffect(() => {
+    const code = draft.patientCode.trim()
+    if (code.length < 2) {
+      setPatientLookup({ state: 'idle' })
+      return
+    }
+    let cancelled = false
+    setPatientLookup({ state: 'searching' })
+    const timeout = window.setTimeout(async () => {
+      try {
+        const patient = await findInpatientByCodeViaXrm(code)
+        if (cancelled) return
+        setPatientLookup(patient ? { state: 'found', patient } : { state: 'missing', message: 'No patient was found in the Inpatient List for this code.' })
+      } catch (error) {
+        if (cancelled) return
+        setPatientLookup({ state: 'error', message: error instanceof Error ? error.message : 'Could not validate this patient code.' })
+      }
+    }, 450)
+    return () => { cancelled = true; window.clearTimeout(timeout) }
+  }, [draft.patientCode])
   return <div className="modal flow-popup-backdrop" role="dialog" aria-modal="true">
     <div className="flow-popup early-discharge-popup">
       <div className="flow-popup-head">
@@ -1402,40 +1718,63 @@ function EarlyDischargeModal({ save, close }: any) {
         <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
       <div className="flow-popup-stack">
-        <label className="flow-popup-field"><span>Discharge type *</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value as EarlyDischarge['type'] | '' })}><option value="">Select type</option><option value="Early">Early</option><option value="Planned">Planned</option></select></label>
+        <label className="flow-popup-field"><span>Discharge type *</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value as EarlyDischarge['type'] | '' })}><option value="" disabled hidden>Select type</option><option value="Early">Early</option><option value="Planned">Planned</option></select></label>
         <label className="flow-popup-field"><span>Patient / MRN *</span><input value={draft.patientCode} onChange={(e) => setDraft({ ...draft, patientCode: e.target.value })} placeholder="Enter inpatient code or MRN" autoFocus /></label>
+        {patientLookup.state === 'searching' && <div className="night-status-chip" role="status">Checking the Inpatient List...</div>}
+        {patientLookup.state === 'found' && <div className="night-status-chip" role="status"><strong>{patientLookup.patient.and_patientname || 'Patient found'}</strong>&nbsp;-&nbsp;{patientLookup.patient.and_name || draft.patientCode.trim()}</div>}
+        {(patientLookup.state === 'missing' || patientLookup.state === 'error') && <div className="night-status-chip" role="alert">{patientLookup.message}</div>}
         <label className="flow-popup-field"><span>Reason *</span><textarea value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} placeholder="Discharge planning notes..." /></label>
       </div>
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" onClick={() => save(draft)}>Save patient</button>
+        <button className="btn primary" disabled={!draft.type || patientLookup.state !== 'found' || !draft.reason.trim()} onClick={() => save(draft)}>Save patient</button>
       </div>
     </div>
   </div>
 }
 
 function OpsTab({ opsIssues, setOpsIssues }: any) {
-  const [draft, setDraft] = useState<OpsIssue>({ id: '', funcId: '778000002', affectedId: '778000000', issueId: '778000000', statusId: '778000000', desc: '', pendingDetails: '' })
+  const emptyOpsDraft = (): OpsIssue => ({ id: '', funcId: '', affectedId: '', issueId: '', statusId: '' as Resolution, desc: '', pendingDetails: '' })
+  const [draft, setDraft] = useState<OpsIssue>(emptyOpsDraft)
   const [adding, setAdding] = useState(false)
   const pendingOps = opsIssues.filter((o: OpsIssue) => o.statusId !== '778000001')
   const carriedOps = opsIssues.filter((o: OpsIssue) => String(o.id || '').startsWith('carry-ops-'))
   const pendingCarriedOps = carriedOps.filter((o: OpsIssue) => o.statusId !== '778000001')
-  function resetOpsDraft() { setDraft({ id: '', funcId: '778000002', affectedId: '778000000', issueId: '778000000', statusId: '778000000', desc: '', pendingDetails: '' }) }
+  const canSave = Boolean(draft.funcId && draft.affectedId && draft.issueId && draft.statusId && draft.desc.trim() && (draft.statusId === '778000001' || draft.pendingDetails.trim()))
+  function resetOpsDraft() { setDraft(emptyOpsDraft()) }
   function closeOpsModal() { resetOpsDraft(); setAdding(false) }
-  function updateOpsIssue(issue: OpsIssue) { setDraft({ ...issue }); setAdding(true) }
+  function updateOpsIssue(issue: OpsIssue) { setDraft({ ...issue, funcId: issue.funcId === '778000002' ? '' : issue.funcId }); setAdding(true) }
   function save() {
+    if (!canSave) return
     const item = { ...draft, id: draft.id || `ops-${Date.now()}` }
     setOpsIssues(draft.id ? opsIssues.map((issue: OpsIssue) => issue.id === draft.id ? item : issue) : [...opsIssues, item])
     closeOpsModal()
   }
-  return <main className="workflow-page ops-page"><PageTitle step="05" eyebrow="Operations" title="Operations" subtitle="Shift-reported operational exceptions and accountable follow-up." action={<button className="btn primary" onClick={() => setAdding(true)}>Log operational exception</button>} /><section className="card report-card section-ops"><div className="ops-summary"><div><small>Shift operations</small><b>{opsIssues.length ? 'Exceptions logged' : 'Clear this shift'}</b><p>{carriedOps.length ? `${carriedOps.length} carried over from previous shift` : opsIssues.length ? 'Operational interruptions recorded' : 'No operational interruptions logged'}</p></div><div><small>Open exceptions</small><b>{pendingOps.length}</b><p>Unresolved partial or total outages</p></div><div><small>Duty Manager attention</small><b>{pendingOps.length}</b><p>Pending exceptions requiring follow-up</p></div></div>
-    {adding && <ModalShell title={draft.id ? 'Update Operations Outage' : 'Log Operations Outage'} tone="ops" onClose={closeOpsModal}><div className="grid report-grid two"><SelectField label="Service Functionality *" value={draft.funcId} options={serviceFunctionalityOptions} onChange={(funcId: string) => setDraft({ ...draft, funcId })} /><SelectField label="Service Affected *" value={draft.affectedId} options={serviceAffectedOptions} onChange={(affectedId: string) => setDraft({ ...draft, affectedId })} /><SelectField label="Type of Issue *" value={draft.issueId} options={opsIssueOptions} onChange={(issueId: string) => setDraft({ ...draft, issueId })} /><SelectField label="Resolution Status *" value={draft.statusId} options={resolutionOptions} onChange={(statusId: Resolution) => setDraft({ ...draft, statusId })} /></div><Field label="Description of Issue *"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field>{draft.statusId !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} /></Field>}<div className="modal-actions"><button className="btn" onClick={closeOpsModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Update' : 'Save Operations Outage'}</button></div></ModalShell>}
-    <div className={`previous-placeholder ops-tone ${pendingCarriedOps.length ? 'has-carry' : ''}`}>{pendingCarriedOps.length ? `${pendingCarriedOps.length} pending operations outage${pendingCarriedOps.length === 1 ? '' : 's'} carried over from the previous shift. Update the item to resolve it.` : 'No pending operations outages carried over from previous shifts.'}</div><div className="single-list">{opsIssues.length === 0 ? <Empty title="All systems fully functional" text="No active outages have been logged for this handover." /> : <CardList items={opsIssues} tone="ops" onUpdate={updateOpsIssue} onDelete={(id: string) => setOpsIssues(opsIssues.filter((x: OpsIssue) => x.id !== id))} render={(o: OpsIssue) => <><strong>{labelFor(serviceAffectedOptions, o.affectedId)} - {labelFor(opsIssueOptions, o.issueId)}</strong><span className="section-bubble ops light">{labelFor(resolutionOptions, o.statusId)}</span>{String(o.id || '').startsWith('carry-ops-') && <span className="section-bubble ops carry-badge">Carried over</span>}<p>{o.desc}</p><small><b>Summary/Pending:</b> {o.pendingDetails}</small></>} />}</div>
-  </section></main>
+  return <main className="workflow-page ops-page"><PageTitle step="05" eyebrow="Operations" title="Operations" subtitle="Shift-reported operational exceptions and accountable follow-up." action={<button className="btn primary" onClick={() => setAdding(true)}>Log operational exception</button>} /><section className="ops-summary"><div><small>Shift operations</small><b>{opsIssues.length ? 'Exceptions logged' : 'Clear this shift'}</b><p>{carriedOps.length ? `${carriedOps.length} carried over from previous shift` : opsIssues.length ? 'Operational interruptions recorded' : 'No operational interruptions logged'}</p></div><div><small>Open exceptions</small><b>{pendingOps.length}</b><p>Unresolved partial or total outages</p></div><div><small>Duty Manager attention</small><b>{pendingOps.length}</b><p>Pending exceptions requiring follow-up</p></div></section>
+    {adding && <ModalShell title={draft.id ? 'Update Operations Outage' : 'Log Operations Outage'} tone="ops" onClose={closeOpsModal}><div className="grid report-grid two"><SelectField label="Service Functionality *" value={draft.funcId} options={outageFunctionalityOptions} placeholder="Select" onChange={(funcId: string) => setDraft({ ...draft, funcId })} /><SelectField label="Service Affected *" value={draft.affectedId} options={serviceAffectedOptions} placeholder="Select" onChange={(affectedId: string) => setDraft({ ...draft, affectedId })} /><SelectField label="Type of Issue *" value={draft.issueId} options={opsIssueOptions} placeholder="Select" onChange={(issueId: string) => setDraft({ ...draft, issueId })} /><SelectField label="Resolution Status *" value={draft.statusId} options={resolutionOptions} placeholder="Select" onChange={(statusId: Resolution) => setDraft({ ...draft, statusId })} /></div><Field label="Description of Issue *"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field>{draft.statusId && draft.statusId !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} /></Field>}<div className="modal-actions"><button className="btn" onClick={closeOpsModal}>Cancel</button><button className="btn primary" disabled={!canSave} onClick={save}>{draft.id ? 'Save Update' : 'Save Operations Outage'}</button></div></ModalShell>}
+    <div className={`previous-placeholder ops-tone ${pendingCarriedOps.length ? 'has-carry' : ''}`}>{pendingCarriedOps.length ? `${pendingCarriedOps.length} pending operations outage${pendingCarriedOps.length === 1 ? '' : 's'} carried over from the previous shift. Update the item to resolve it.` : 'No pending operations outages carried over from previous shifts.'}</div>
+    <div className="movement-head ops-timeline-head"><div><h2>Operational exception timeline</h2></div><p>Current-shift interruptions and accountable follow-up.</p></div>
+    <section className="event-timeline ops-timeline">{opsIssues.length === 0 ? <Empty title="All systems fully functional" text="No active outages have been logged for this handover." /> : opsIssues.map((o: OpsIssue) => <article className="timeline-row ops-timeline-row" key={o.id}>
+      <time>{labelFor(serviceFunctionalityOptions, o.funcId)}</time>
+      <span className={`timeline-dot ${o.statusId === '778000001' ? 'low' : 'warning'}`} />
+      <div><small>{labelFor(resolutionOptions, o.statusId)}{String(o.id || '').startsWith('carry-ops-') ? ' · Carried over' : ''}</small><h3>{labelFor(serviceAffectedOptions, o.affectedId)} - {labelFor(opsIssueOptions, o.issueId)}</h3><p>{o.desc || 'No issue description recorded.'}</p></div>
+      <div className="timeline-owner"><b>{o.pendingDetails || (o.statusId === '778000001' ? 'Resolved' : 'Duty Manager follow-up')}</b><span>{o.statusId === '778000001' ? 'Resolution completed' : 'Pending details'}</span></div>
+      <div className="row-actions compact"><button className="btn small" onClick={() => updateOpsIssue(o)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete operational exception" title="Delete" onClick={() => setOpsIssues(opsIssues.filter((x: OpsIssue) => x.id !== o.id))}>x</button></div>
+    </article>)}</section>
+  </main>
 }
 function ExperienceTab({ form, updateForm }: any) {
   const hasFollowUp = Boolean(form.complaintsCount || form.ovrsCount || form.govVisit === 'Yes')
-  return <main className="workflow-page experience-page"><PageTitle step="06" eyebrow="Experience" title="Experience" subtitle="Patient concerns, variance reports and regulatory follow-up for the current shift." /><section className="experience-summary"><div><small>Experience status</small><b>{hasFollowUp ? 'Active follow-up' : 'No active concerns'}</b><p>{hasFollowUp ? 'Experience items require documented follow-up.' : 'No unresolved patient or family experience issues logged.'}</p></div><div><small>Experience attention</small><b>{form.complaintsCount}</b><p>Escalated complaints</p></div><div><small>Governance signals</small><div className="metric-cluster"><b>{form.ovrsCount}<span>Escalated OVRs</span></b><b>{form.govVisit === 'Yes' ? 1 : 0}<span>Regulatory visits</span></b></div></div></section><section className="experience-work-grid"><ExperiencePanel title="Escalated complaints" subtitle="Patient dissatisfaction cases"><NumberField label="Number of Complaints *" value={form.complaintsCount} onChange={(complaintsCount: number) => updateForm({ complaintsCount })} />{form.complaintsCount > 0 && <Field label="Summary of Complaints *"><textarea value={form.complaintsSummary} onChange={(e) => updateForm({ complaintsSummary: e.target.value })} placeholder="Describe patient complaints clearly..." /></Field>}</ExperiencePanel><ExperiencePanel title="Escalated OVRs" subtitle="Official variance reports"><NumberField label="Number of OVRs *" value={form.ovrsCount} onChange={(ovrsCount: number) => updateForm({ ovrsCount })} />{form.ovrsCount > 0 && <Field label="Summary of OVRs *"><textarea value={form.ovrsSummary} onChange={(e) => updateForm({ ovrsSummary: e.target.value })} placeholder="Describe incident / OVR details..." /></Field>}</ExperiencePanel></section><section className="experience-card experience-regulatory"><div className="experience-head"><div><h3>Regulatory & Government</h3><small>Authority visits during shift</small></div><span className="experience-state">{form.govVisit === 'Yes' ? 'Visit logged' : 'No visits'}</span></div><div className="experience-body"><Field label="Government / Regulatory Visit"><select value={form.govVisit} onChange={(e) => updateForm({ govVisit: e.target.value })}><option value="No">No Visits</option><option value="Yes">Yes, Visited</option></select></Field>{form.govVisit === 'Yes' && <Field label="Authority Name & Findings Summary *"><textarea value={form.govSummary} onChange={(e) => updateForm({ govSummary: e.target.value })} placeholder="Include authority name, purpose of visit, and findings..." /></Field>}</div></section></main>
+  return <main className="workflow-page experience-page">
+    <PageTitle step="06" eyebrow="Experience" title="Experience" subtitle="Patient concerns, variance reports and regulatory follow-up for the current shift." />
+    <section className="experience-summary"><div><small>Experience status</small><b>{hasFollowUp ? 'Active follow-up' : 'No active concerns'}</b><p>{hasFollowUp ? 'Experience items require documented follow-up.' : 'No unresolved patient or family experience issues logged.'}</p></div><div><small>Experience attention</small><b>{form.complaintsCount}</b><p>Escalated complaints</p></div><div><small>Governance signals</small><div className="metric-cluster"><b>{form.ovrsCount}<span>Escalated OVRs</span></b><b>{form.govVisit === 'Yes' ? 1 : 0}<span>Regulatory visits</span></b></div></div></section>
+    <div className="movement-head experience-register-head"><div><h2>Experience and governance record</h2></div><p>Current-shift concerns, variance reports and authority activity.</p></div>
+    <section className="experience-register">
+      <ExperiencePanel title="Escalated complaints" subtitle="Patient dissatisfaction cases" state={form.complaintsCount ? `${form.complaintsCount} logged` : 'None logged'}><NumberField label="Number of Complaints *" value={form.complaintsCount} onChange={(complaintsCount: number) => updateForm({ complaintsCount })} />{form.complaintsCount > 0 && <Field label="Summary of Complaints *"><textarea value={form.complaintsSummary} onChange={(e) => updateForm({ complaintsSummary: e.target.value })} placeholder="Describe patient complaints clearly..." /></Field>}</ExperiencePanel>
+      <ExperiencePanel title="Escalated OVRs" subtitle="Official variance reports" state={form.ovrsCount ? `${form.ovrsCount} logged` : 'None logged'}><NumberField label="Number of OVRs *" value={form.ovrsCount} onChange={(ovrsCount: number) => updateForm({ ovrsCount })} />{form.ovrsCount > 0 && <Field label="Summary of OVRs *"><textarea value={form.ovrsSummary} onChange={(e) => updateForm({ ovrsSummary: e.target.value })} placeholder="Describe incident / OVR details..." /></Field>}</ExperiencePanel>
+      <ExperiencePanel title="Regulatory & Government" subtitle="Authority visits during shift" state={form.govVisit === 'Yes' ? 'Visit logged' : 'No visits'}><Field label="Government / Regulatory Visit"><select value={form.govVisit} onChange={(e) => updateForm({ govVisit: e.target.value })}><option value="No">No Visits</option><option value="Yes">Yes, Visited</option></select></Field>{form.govVisit === 'Yes' && <Field label="Authority Name & Findings Summary *"><textarea value={form.govSummary} onChange={(e) => updateForm({ govSummary: e.target.value })} placeholder="Include authority name, purpose of visit, and findings..." /></Field>}</ExperiencePanel>
+    </section>
+  </main>
 }
 function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, busy }: any) {
   const readinessSections = [
@@ -1447,7 +1786,6 @@ function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, 
     ['06', 'Experience'],
   ]
   const carriedPending = pendingItems.filter((item: any) => String(item.id || '').startsWith('carry-'))
-  const saveReview = () => updateForm({ hotIssues: form.hotIssues })
 
   return <main className="workflow-page summary-page">
     <PageTitle step="07" eyebrow="Handover Review" title="Summary" subtitle="Review readiness, unresolved responsibilities and transfer state before handover." />
@@ -1472,12 +1810,11 @@ function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, 
       </div>
     </section>
     <div className="summary-main-grid">
-      <section className="card final-review">
+      <section className="card final-review" style={{ paddingBottom: 20 }}>
         <div className="section-header"><h2>Final review</h2><span>Current shift handover</span></div>
         <Field label="Final handover note - Hot issues during shift *"><textarea value={form.hotIssues} onChange={(e) => updateForm({ hotIssues: e.target.value })} /></Field>
         <p className="field-help">Capture only issues requiring incoming Duty Manager awareness.</p>
         {form.shift === 'Night' && <div className="grid night-summary-fields"><Field label="Night Medical Meeting"><select value={form.nightMedicalMeeting} onChange={(e) => updateForm({ nightMedicalMeeting: e.target.value })}><option value="778000000">Done</option><option value="778000001">Not Done</option></select></Field><Field label="Meeting Summary"><textarea value={form.nightSummary} onChange={(e) => updateForm({ nightSummary: e.target.value })} /></Field></div>}
-        <div className="final-review-actions"><button className="btn" onClick={saveReview}>Save review</button></div>
       </section>
       <aside className="transfer-state"><div className="transfer-head"><h2>Final transfer state</h2><span>Outgoing handover</span></div><div><span>Report state</span><b>{completion.ok ? 'Ready' : 'Review required'}</b></div><div><span>Submission</span><b>Not submitted</b></div><div><span>Incoming responsibility</span><b>Pending assignment</b></div><div><span>Acknowledgment</span><b>Not yet acknowledged</b></div></aside>
     </div>
@@ -1494,15 +1831,34 @@ function carryIssueOrigin(item: any) {
   if (String(item.id || '').startsWith('carry-ops-')) return `Operations - ${labelFor(serviceAffectedOptions, item.affectedId)} / ${labelFor(opsIssueOptions, item.issueId)}`
   return item.catLabel ? `Administrative issues - ${item.catLabel}` : 'Previous-shift issue'
 }
-function eventAreaOptions(typeText?: string): [PatientArea, string][] {
+function isKsaBusinessUnit(businessUnit?: string) {
+  return labelFor(businessUnits, businessUnit || '') === 'AHJ'
+}
+
+function patientAreaOptions(businessUnit?: string): [PatientArea, string][] {
+  return isKsaBusinessUnit(businessUnit)
+    ? [['ER', 'ER'], ['OPD_KSA', 'OPD KSA'], ['IPD_KSA', 'IPD KSA']]
+    : [['OPD_EG', 'OPD EG'], ['IPD', 'IPD EG']]
+}
+
+function eventAreaOptions(typeText?: string, businessUnit?: string): [PatientArea, string][] {
   if (typeText === 'ER Code') return [['ER', 'ER']]
-  if (typeText === 'Hospital Code') return [['IPD', 'IPD']]
-  return [['ER', 'ER'], ['IPD', 'IPD'], ['OPD_EG', 'OPD EG'], ['OPD_KSA', 'OPD KSA']]
+  if (typeText === 'Hospital Code') return isKsaBusinessUnit(businessUnit) ? [['IPD_KSA', 'IPD KSA']] : [['IPD', 'IPD EG']]
+  return patientAreaOptions(businessUnit)
 }
 function ModalShell({ title, tone, onClose, children }: any) {
-  return <div className="modal" role="dialog" aria-modal="true"><div className={`modal-content form-modal tone-${tone || 'default'}`}><div className="modal-title-row"><h3>{title}</h3><button className="icon-close" onClick={onClose} aria-label="Close">x</button></div>{children}</div></div>
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
+  const parts = Children.toArray(children)
+  const footerIndex = parts.findIndex((child) => isValidElement<{ className?: string }>(child) && child.props.className === 'modal-actions')
+  const footer = footerIndex >= 0 ? parts[footerIndex] : null
+  const body = footerIndex >= 0 ? parts.filter((_, index) => index !== footerIndex) : parts
+  return <div className="modal" role="dialog" aria-modal="true"><div className={`modal-content form-modal tone-${tone || 'default'}`}><div className="modal-title-row"><h3>{title}</h3><button className="icon-close" onClick={onClose} aria-label="Close">x</button></div><div className="form-modal-body">{body}</div>{footer}</div></div>
 }
-function ExperiencePanel({ title, subtitle, children }: any) { return <section className="experience-card"><div className="experience-head"><div><h3>{title}</h3><small>{subtitle}</small></div></div><div className="experience-body">{children}</div></section> }
+function ExperiencePanel({ title, subtitle, state, children }: any) { return <section className="experience-card"><div className="experience-head"><div><h3>{title}</h3><small>{subtitle}</small></div>{state && <span className="experience-state">{state}</span>}</div><div className="experience-body">{children}</div></section> }
 function SeverityBubbles({ value, onChange }: { value: Severity; onChange: (value: Severity) => void }) {
   return <Field label="Severity Level *"><div className="severity-bubbles">{severityOptions.map(([optionValue, optionLabel]) => <button key={optionValue} className={`severity-bubble ${severityClass(optionValue)} ${String(value) === String(optionValue) ? 'active' : ''}`} onClick={() => onChange(optionValue as Severity)}>{optionLabel}</button>)}</div></Field>
 }
@@ -1526,7 +1882,6 @@ function PatientLookup({ area, label, value, onSelect }: { area: PatientArea; la
 
   return <Field label={label}><div className="lookup-wrap"><input value={query} placeholder="Search by Name or MRN..." onChange={(e) => change(e.target.value)} onBlur={() => setTimeout(() => setMatches([]), 150)} />{matches.length > 0 && <div className="lookup-results">{matches.map((p) => <button className="lookup-item" key={p.id} onClick={() => { onSelect(p); setQuery(`${p.name}${p.code ? ` (${p.code})` : ''}`); setMatches([]) }}>{p.name || 'Unnamed Patient'} {p.code ? `- ${p.code}` : ''}</button>)}</div>}</div></Field>
 }
-function DashedEmpty({ text, variant }: { text: string; variant?: string }) { return <div className={`dashed-empty ${variant || ''}`}>{text}</div> }
 function Submitted({ form, events, opsIssues, pendingItems, openReport, goHome }: any) {
   const majorEvents = events.filter((e: EventItem) => e.severity === '778000002')
   const outageNotice = opsIssues.some((o: OpsIssue) => ['778000000', '778000004'].includes(o.affectedId))
@@ -1580,6 +1935,11 @@ function ReportModal({ bundle, close, acknowledge }: any) {
   const flowEntries = bundle.flowEntries || []
   const reportShift = shiftFromValue(r.dma_shifttype)
   const isNightReport = reportShift === 'Night'
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
   return <div className="modal report-modal-backdrop"><div className="modal-content wide report-modal">
     <header className="report-modal-head">
       <div>
@@ -1595,9 +1955,16 @@ function ReportModal({ bundle, close, acknowledge }: any) {
         <span><small>Report state</small><b>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted'}</b></span>
         <span><small>Acknowledgment</small><b>{r.dma_dmacknowledgmenttimestamp ? formatDate(r.dma_dmacknowledgmenttimestamp) : 'Pending'}</b></span>
       </div>
+      <aside className="transfer-state report-transfer report-transfer-head">
+        <h2>Transfer state</h2>
+        <div><span>Report state</span><b>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted'}</b></div>
+        <div><span>Acknowledgment</span><b>{r.dma_dmacknowledgmenttimestamp ? formatDate(r.dma_dmacknowledgmenttimestamp) : 'Pending'}</b></div>
+        <div><span>Duty Manager</span><b>{displayName(r)}</b></div>
+      </aside>
       <button className="icon-close report-close" onClick={close} aria-label="Close">x</button>
     </header>
 
+    <div className="report-modal-scroll">
     <section className="report-modal-summary">
       <div><small>Patient flow</small><b>{bundle.flow.length}</b></div>
       <div><small>Hospital events</small><b>{bundle.events.length}</b></div>
@@ -1618,7 +1985,7 @@ function ReportModal({ bundle, close, acknowledge }: any) {
           <div className="surface-head"><h3>Patient flow</h3><p>{bundle.flow.length} summary records attached</p></div>
           {bundle.flow.length === 0 ? <Empty title="No patient flow summary" text="No patient flow summary is attached to this handover." /> : <div className="report-detail-grid">
             <ReportMetric label="Staff coverage" value={formattedChoice(flow, 'dma_staffadequacy', staffOptions, 'Not recorded')} />
-            <ReportMetric label="Total ER volume" value={flow.dma_ervolume ?? 0} />
+            <ReportMetric label="Total ER volume" value={<>{flow.dma_ervolume ?? 0} <a className="er-dashboard-link" href="https://app.powerbi.com/singleSignOn?experience=power-bi&ru=https%3A%2F%2Fapp.powerbi.com%2Fgroups%2F3f5475b1-b4ad-4bcd-8909-7c94862de69c%2Freports%2Fde88cd1b-5c29-4599-a594-57de388f3015%2Fb2d5c8b0b26932ebac9b%3Fexperience%3Dpower-bi%26noSignUpCheck%3D1" target="_blank" rel="noreferrer">↗ View</a></>} />
             <ReportMetric label="ER admissions" value={flow.dma_eradmissions ?? 0} />
             <ReportMetric label="OPD admissions" value={flow.dma_opdadmissions ?? 0} />
             <ReportMetric label="Total admissions" value={flow.dma_admissions ?? 0} />
@@ -1675,16 +2042,11 @@ function ReportModal({ bundle, close, acknowledge }: any) {
         </section>
       </div>
 
-      <aside className="transfer-state report-transfer">
-        <h2>Transfer state</h2>
-        <div><span>Report state</span><b>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted'}</b></div>
-        <div><span>Acknowledgment</span><b>{r.dma_dmacknowledgmenttimestamp ? formatDate(r.dma_dmacknowledgmenttimestamp) : 'Pending'}</b></div>
-        <div><span>Duty Manager</span><b>{displayName(r)}</b></div>
-      </aside>
     </section>
+    </div>
 
     <footer className="report-modal-actions">
-      <button className="btn primary" onClick={acknowledge}>Acknowledge</button>
+      <button className="btn primary" onClick={acknowledge} disabled={Boolean(r.dma_dmacknowledgmenttimestamp)}>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Acknowledge'}</button>
       <button className="btn" onClick={() => window.print()}>Download PDF</button>
       <button className="btn" onClick={close}>Close</button>
     </footer>
@@ -1709,8 +2071,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="field"><span>{label}</span>{children}</label>
 }
 
-function SelectField({ label, value, options, onChange }: { label: string; value: string; options: [string, string][]; onChange: (value: any) => void }) {
-  return <Field label={label}><select value={value} onChange={(e) => onChange(e.target.value)}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></Field>
+function SelectField({ label, value, options, placeholder, onChange }: { label: string; value: string; options: [string, string][]; placeholder?: string; onChange: (value: any) => void }) {
+  return <Field label={label}><select value={value} onChange={(e) => onChange(e.target.value)}>{placeholder && <option value="" disabled hidden>{placeholder}</option>}{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></Field>
 }
 
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
@@ -1725,10 +2087,6 @@ function PageTitle({ step, eyebrow, title, subtitle, action }: { step: string; e
   return <header className="page-title"><div><div className="eyebrow">{step} · {eyebrow}</div><h1>{title}</h1><p>{subtitle}</p></div>{action}</header>
 }
 
-function CardList({ items, render, onDelete, onUpdate }: any) {
-  if (!items?.length) return <Empty title="Nothing logged yet" text="Add an entry above." />
-  return <div className="card-list">{items.map((item: any, index: number) => <div className="event-card" key={item.id || item.dma_hospitaleventid || item.dma_administrativeissueentryid || item.dma_opeartionid || index}>{onDelete && <button className="btn small danger icon-delete" aria-label="Delete item" title="Delete" onClick={() => onDelete(item.id)}>x</button>}{render(item)}{onUpdate && <button className="btn small update-card" onClick={() => onUpdate(item)}>Update</button>}</div>)}</div>
-}
 
 
 
@@ -1740,13 +2098,13 @@ function CardList({ items, render, onDelete, onUpdate }: any) {
 
 type HostUser = { id: string; name: string; upn: string; aadObjectId: string }
 
-function reportPayload(source: FormState) {
+function reportPayload(source: FormState, includeDraftStatus = false) {
   const payload: any = compact({
     dma_name: reportCode(source),
     dma_reportdate: source.reportDate ? new Date(source.reportDate).toISOString() : new Date().toISOString(),
     dma_businessunit: Number(source.businessUnit),
     dma_shifttype: shiftMap[source.shift],
-    dma_reportstatus: 778000001,
+    dma_reportstatus: includeDraftStatus ? 778000001 : undefined,
     dma_hotissues: source.hotIssues || 'Draft Report initiated',
     dma_nightmedicalmeeting: source.shift === 'Night' ? Number(source.nightMedicalMeeting) : undefined,
     dma_nightmedicalmeetingsummary: source.shift === 'Night' ? source.nightSummary : undefined,
@@ -1756,7 +2114,7 @@ function reportPayload(source: FormState) {
 }
 
 async function persistGeneral(source: FormState, existingId: string) {
-  const payload = reportPayload(source)
+  const payload = reportPayload(source, !existingId)
   if (existingId) {
     await Services.reports.update(cleanId(existingId), payload)
     return cleanId(existingId)
@@ -1767,39 +2125,86 @@ async function persistGeneral(source: FormState, existingId: string) {
   return id
 }
 
-function patientFlowPayload(source: FormState, issues: AdminIssue[]) {
+function patientFlowPayload(source: FormState) {
   return compact({
     dma_name: `${reportCode(source)} Flow`,
-    dma_staffadequacy: Number(source.staffAdequacy), dma_ervolume: source.erVolume, dma_eradmissions: source.erAdmissions, dma_opdadmissions: source.opdAdmissions,
-    dma_admissions: source.erAdmissions + source.opdAdmissions, dma_discharges: source.discharges, dma_planneddischarges: source.plannedDischarges, dma_unplanneddischarges: source.unplannedDischarges,
+    dma_staffadequacy: Number(source.staffAdequacy), dma_ervolume: source.erVolume,
+    dma_unplanneddischarges: source.unplannedDischarges,
     dma_totalorcases: source.totalORCases, dma_preoperative: source.preoperative, dma_postoperative: source.postoperative, dma_postponedorcases: source.postponedORCases, dma_cancelledorcases: source.cancelledORCases,
     dma_erdama: source.erDama, dma_erdamaretention: source.erDamaRetention, dma_inpdama: source.inpDama, dma_inpdamaretention: source.inpDamaRetention,
     dma_closeddama: source.closedDama, dma_closeddamaretention: source.closedDamaRetention, dma_shortagetype: source.shortageTypes[0] ? Number(source.shortageTypes[0]) : undefined,
     dma_shortfallsummary: source.shortfallSummary, dma_inputilization: source.inpUtilization, dma_icuutilization: source.icuUtilization, dma_ccuutilization: source.ccuUtilization,
     dma_picuutilization: source.picuUtilization, dma_nicuutilization: source.nicuUtilization, dma_cxutilization: source.cxUtilization, dma_strokeutilization: source.strokeUtilization,
-    dma_delayeddischargescount: issues.filter((x) => x.catLabel.toLowerCase().includes('discharge')).length,
     dma_delayeddischargesnarrative: source.delayedDischargesNarrative,
-    dma_prolongederadmissionscount: issues.filter((x) => x.catLabel.toLowerCase().includes('admission')).length,
     dma_prolongedernarrative: source.prolongedERNarrative,
   })
 }
 
-async function persistFlow(source: FormState, issues: AdminIssue[], reportId: string, existingId: string) {
+async function persistFlow(source: FormState, reportId: string, existingId: string) {
   if (!reportId) throw new Error('A handover report ID is required before patient flow can be saved.')
-  const payload: any = patientFlowPayload(source, issues)
+  const payload: any = patientFlowPayload(source)
   if (existingId) {
     await Services.flow.update(cleanId(existingId), payload)
+    await syncCoverageShortages(reportId, source)
     return cleanId(existingId)
   }
   payload['dma_ReportID@odata.bind'] = `/dma_handoverreports(${cleanId(reportId)})`
   const created = unwrap<any>(await Services.flow.create(payload))
   const id = cleanId(created?.dma_patientflowsummaryid || created?.id)
   if (!id) throw new Error('Dataverse did not return the new patient-flow summary ID.')
+  await syncCoverageShortages(reportId, source)
   return id
 }
 
+async function coverageShortageRows(reportId: string) {
+  const report = cleanId(reportId)
+  if (!report) return []
+  return list<any>(await Services.coverageShortages.getAll({
+    select: ['dma_coverageshortageid', 'dma_name', 'dma_shortagetype'],
+    filter: `_dma_reportid_value eq ${report}`,
+    orderBy: ['createdon asc'],
+  } as any))
+}
+
+async function syncCoverageShortages(reportId: string, source: FormState) {
+  const report = cleanId(reportId)
+  if (!report) throw new Error('The handover report must exist before coverage shortages can be saved.')
+  const desired = new Set(source.staffAdequacy === '778000000' ? (source.shortageTypes || []).map(String) : [])
+  const existing = await coverageShortageRows(report)
+  const retainedTypes = new Set<string>()
+
+  for (const row of existing) {
+    const type = String(row.dma_shortagetype ?? '')
+    if (!desired.has(type) || retainedTypes.has(type)) {
+      await Services.coverageShortages.delete(cleanId(row.dma_coverageshortageid))
+    } else {
+      retainedTypes.add(type)
+    }
+  }
+
+  for (const type of desired) {
+    if (retainedTypes.has(type)) continue
+    await Services.coverageShortages.create({
+      dma_name: `${reportCode(source)} - ${labelFor(shortageOptions, type)}`,
+      dma_shortagetype: Number(type),
+      'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`,
+    } as any)
+  }
+}
+
+async function deleteCoverageShortages(reportId: string) {
+  const rows = await coverageShortageRows(reportId)
+  await Promise.all(rows.map((row) => Services.coverageShortages.delete(cleanId(row.dma_coverageshortageid))))
+}
+
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error || 'Unknown error')
+  if (error instanceof Error) return error.stack || error.message
+  try { return JSON.stringify(error) } catch { return String(error || 'Unknown error') }
+}
+
+function isSubmittedReport(row: any) {
+  const status = Number(row?.dma_reportstatus)
+  return status === 778000002 || status === 778000000
 }
 
 function resultId(result: unknown, primaryKey: string) {
@@ -1924,7 +2329,7 @@ function getXrmWebApi() {
 async function retrieveHandoverReportsViaXrm(filterValue = 'all') {
   const api = getXrmWebApi()
   if (!api) return []
-  let query = '?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_shifttype,createdon,dma_businessunit,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$top=100&$orderby=createdon desc'
+  let query = '?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_shifttype,dma_reportstatus,statecode,statuscode,dma_hotissues,createdon,dma_businessunit,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$top=100&$orderby=createdon desc'
   if (filterValue !== 'all') query += `&$filter=dma_businessunit eq ${filterValue}`
   const result = await api.retrieveMultipleRecords('dma_handoverreport', query)
   return result?.entities || []
@@ -2017,7 +2422,7 @@ async function retrieveCarryForwardItems(previousReportId: string) {
 }
 
 async function acknowledgeHandoverReport(id: string, timestamp: string) {
-  const payload = { dma_dmacknowledgmenttimestamp: timestamp, statecode: 1, statuscode: 2 } as any
+  const payload = { dma_dmacknowledgmenttimestamp: timestamp, dma_reportstatus: 778000000, statecode: 0, statuscode: 1 } as any
   const api = getXrmWebApi()
   if (api) {
     await api.updateRecord('dma_handoverreport', cleanId(id), payload)
@@ -2052,50 +2457,38 @@ async function retrieveReportBundleViaXrm(id: string): Promise<ReportBundle | nu
   }
 }
 
-async function retrieveFlowCensusViaXrm(id: string): Promise<Partial<FormState>> {
+async function retrievePatientFlowSummary(id: string): Promise<Partial<FormState>> {
   const api = getXrmWebApi()
-  if (!api) return {}
   const clean = cleanId(id)
   const fromRow = (row: any): Partial<FormState> => {
-    const erAdmissions = toNumeric(row?.dma_eradmissions)
-    const opdAdmissions = toNumeric(row?.dma_opdadmissions)
     const patch: Partial<FormState> = {}
-    if (row?.dma_ervolume !== undefined && row?.dma_ervolume !== null) patch.erVolume = toNumeric(row.dma_ervolume)
-    if (row?.dma_eradmissions !== undefined && row?.dma_eradmissions !== null) patch.erAdmissions = erAdmissions
-    if (row?.dma_opdadmissions !== undefined && row?.dma_opdadmissions !== null) patch.opdAdmissions = opdAdmissions
-    if (row?.dma_admissions !== undefined && row?.dma_admissions !== null) patch.admissions = toNumeric(row.dma_admissions)
+    if (!row) return patch
+    const numberFields: [keyof FormState, string][] = [
+      ['erAdmissions', 'dma_eradmissions'],
+      ['opdAdmissions', 'dma_opdadmissions'],
+      ['admissions', 'dma_admissions'],
+      ['discharges', 'dma_discharges'],
+      ['plannedDischarges', 'dma_planneddischarges'],
+      ['delayedDischargesCount', 'dma_delayeddischargescount'],
+      ['prolongedERAdmissionsCount', 'dma_prolongederadmissionscount'],
+    ]
+    numberFields.forEach(([formField, dataverseField]) => {
+      if (row[dataverseField] !== undefined && row[dataverseField] !== null) (patch as any)[formField] = toNumeric(row[dataverseField])
+    })
     return patch
   }
 
-  try {
-    const report = await api.retrieveRecord('dma_handoverreport', clean, '?$select=dma_ervolume,dma_eradmissions,dma_opdadmissions,dma_admissions')
-    const patch = fromRow(report)
-    if (Object.keys(patch).length) return patch
-  } catch (error) {
-    console.warn('Handover report census refresh failed, trying patient flow summary', error)
+  if (api) {
+    try {
+      const flow = await api.retrieveMultipleRecords('dma_patientflowsummary', `?$filter=_dma_reportid_value eq ${clean}&$top=1&$orderby=createdon desc`)
+      return fromRow(flow?.entities?.[0])
+    } catch (error) {
+      console.warn('Xrm patient-flow refresh failed; trying generated Dataverse service', error)
+    }
   }
 
-  try {
-    const flow = await api.retrieveMultipleRecords('dma_patientflowsummary', `?$filter=_dma_reportid_value eq ${clean}&$top=1&$orderby=createdon desc`)
-    return fromRow(flow?.entities?.[0])
-  } catch (error) {
-    console.warn('Patient flow summary census refresh failed', error)
-    return {}
-  }
-}
-
-async function retrieveTotalDischargesViaXrm(form: FormState): Promise<number | null> {
-  const api = getXrmWebApi()
-  if (!api || !form.reportDate) return null
-  const range = shiftWindow(form.reportDate, form.shift)
-  if (!range) return null
-  try {
-    const result = await api.retrieveMultipleRecords('crad2_patientdischarge', `?$select=crad2_patientdischargeid&$filter=crad2_dischargedate ge ${range.start} and crad2_dischargedate lt ${range.end}`)
-    return result?.entities?.length ?? null
-  } catch (error) {
-    console.warn('Total discharges refresh failed', error)
-    return null
-  }
+  const result = await Services.flow.getAll({ filter: `_dma_reportid_value eq ${clean}`, orderBy: ['createdon desc'], top: 1 } as any)
+  return fromRow(list(result)[0])
 }
 
 function targetDischargeDate(reportDate: string) {
@@ -2108,31 +2501,42 @@ function targetDischargeDate(reportDate: string) {
 }
 
 async function syncEarlyDischargesViaXrm(reportDate: string): Promise<{ masterId: string; rows: EarlyDischarge[] }> {
-  const api = getXrmWebApi()
   const targetDate = targetDischargeDate(reportDate)
-  if (!api || !targetDate) return { masterId: '', rows: [] }
-  const masterResult = await api.retrieveMultipleRecords('and_earlydischarge', `?$select=and_earlydischargeid,and_name,and_dischargedate,and_statusnew&$filter=and_dischargedate eq '${targetDate}' and and_statusnew eq 0&$top=1`)
-  const master = masterResult?.entities?.[0]
+  if (!targetDate) return { masterId: '', rows: [] }
+  const masters = list(await Services.earlyDischargeMasters.getAll({
+    select: ['and_earlydischargeid', 'and_name', 'and_dischargedate', 'and_statusnew', 'statecode', 'createdon'],
+    filter: `and_dischargedate eq '${targetDate}'`, orderBy: ['createdon desc'],
+  } as any))
+  const master = masters.find((row: any) => Number(row.and_statusnew) === 0 && Number(row.statecode) === 0)
   const masterId = cleanId(master?.and_earlydischargeid || '')
   if (!masterId) return { masterId: '', rows: [] }
-  const childResult = await api.retrieveMultipleRecords('and_earlydischarge_ipdvisits', `?$select=and_earlydischarge_ipdvisitsid,and_name,and_dischargetype,and_cancellationreason,_and_patientcode_value&$filter=_and_earlydischarge_value eq ${masterId}&$expand=and_PatientCode($select=and_name,and_patientname)`)
-  const rows = (childResult?.entities || []).map((child: any) => ({
-    id: child.and_earlydischarge_ipdvisitsid,
-    area: 'IPD' as PatientArea,
-    name: child.and_PatientCode?.and_patientname || child.and_name || 'Early/Planned Discharge',
-    code: child.and_PatientCode?.and_name || '',
-    patientId: child._and_patientcode_value || '',
-    type: child.and_dischargetype === 1 ? 'Early' : 'Planned',
-    reason: child.and_cancellationreason || '',
+  const children = list(await Services.earlyDischargePatients.getAll({ filter: `_and_earlydischarge_value eq ${masterId}`, orderBy: ['createdon asc'] } as any))
+  const rows = await Promise.all(children.map(async (child: any) => {
+    const patientId = cleanId(child._and_patientcode_value || '')
+    const patient = patientId ? unwrap<any>(await Services.inpatientList.get(patientId).catch(() => null)) : null
+    return {
+      id: child.and_earlydischarge_ipdvisitsid,
+      area: 'IPD' as PatientArea,
+      name: patient?.and_patientname || child.and_name || child.and_patientcodename || 'Early/Planned Discharge',
+      code: patient?.and_name || '',
+      patientId,
+      type: (child.and_dischargetype === 1 ? 'Early' : 'Planned') as EarlyDischarge['type'],
+      reason: child.and_cancellationreason || '',
+    }
   }))
   return { masterId, rows }
 }
 
 async function createEarlyDischargeViaXrm(masterId: string, draft: { type: EarlyDischarge['type']; patientCode: string; reason: string }): Promise<EarlyDischarge> {
-  const api = getXrmWebApi()
-  if (!api) throw new Error('Dataverse is not available for early discharge entry.')
   const patient = await findInpatientByCodeViaXrm(draft.patientCode)
   if (!patient?.and_inpatientlistid) throw new Error('No inpatient was found for that patient code.')
+  const patientId = cleanId(patient.and_inpatientlistid)
+  const duplicates = list(await Services.earlyDischargePatients.getAll({
+    select: ['and_earlydischarge_ipdvisitsid'],
+    filter: `_and_earlydischarge_value eq ${cleanId(masterId)} and _and_patientcode_value eq ${patientId}`,
+    top: 1,
+  } as any))
+  if (duplicates.length) throw new Error('This patient is already in tomorrow discharge plan.')
   const payload = compact({
     and_dischargetype: draft.type === 'Early' ? 1 : 2,
     and_name: patient.and_patientname || patient.and_name || 'Early/Planned Discharge',
@@ -2140,9 +2544,36 @@ async function createEarlyDischargeViaXrm(masterId: string, draft: { type: Early
     'and_PatientCode@odata.bind': `/and_inpatientlists(${cleanId(patient.and_inpatientlistid)})`,
     'and_EarlyDischarge@odata.bind': `/and_earlydischarges(${cleanId(masterId)})`,
   })
-  const created = await api.createRecord('and_earlydischarge_ipdvisits', payload)
+  const createdResult = await Services.earlyDischargePatients.create(payload as any)
+  const childId = resultId(createdResult, 'and_earlydischarge_ipdvisitsid')
+  if (!childId) throw new Error('Dataverse created no Early Discharge patient ID.')
+  try {
+    const master = unwrap<any>(await Services.earlyDischargeMasters.get(cleanId(masterId)))
+    const dischargeDate = String(master?.and_dischargedate || '')
+    let dischargeAt: string | undefined
+    if (dischargeDate) {
+      const dateOnly = dischargeDate.match(/^(\d{4})-(\d{2})-(\d{2})/)
+      const parsed = dateOnly
+        ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 9, 0, 0, 0)
+        : new Date(dischargeDate)
+      if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid Early Discharge date returned by Dataverse: ${dischargeDate}`)
+      if (!dateOnly) parsed.setHours(9, 0, 0, 0)
+      dischargeAt = parsed.toISOString()
+    }
+    const patientDischarge = await Services.patientDischarges.create(compact({
+      crad2_dischargereference: `${draft.patientCode.trim()}-${Date.now()}`,
+      crad2_patientidlookup: draft.patientCode.trim(), crad2_patientname: patient.and_patientname || patient.and_name,
+      crad2_dischargedate: dischargeAt, and_earlyflag: 1,
+      'and_PatientCode@odata.bind': `/and_inpatientlists(${cleanId(patient.and_inpatientlistid)})`,
+    }) as any)
+    const patientDischargeId = resultId(patientDischarge, 'crad2_patientdischargeid')
+    if (patientDischargeId) await Services.earlyDischargePatients.update(childId, { 'and_PatientDischarge@odata.bind': `/crad2_patientdischarges(${cleanId(patientDischargeId)})` } as any)
+  } catch (error) {
+    await Services.earlyDischargePatients.delete(childId).catch(() => undefined)
+    throw new Error(`Patient Discharge linkage failed: ${errorMessage(error)}`)
+  }
   return {
-    id: created?.id || created?.and_earlydischarge_ipdvisitsid || `local-ed-${Date.now()}`,
+    id: childId,
     area: 'IPD',
     name: patient.and_patientname || patient.and_name || 'Early/Planned Discharge',
     code: patient.and_name || draft.patientCode.trim(),
@@ -2153,63 +2584,23 @@ async function createEarlyDischargeViaXrm(masterId: string, draft: { type: Early
 }
 
 async function deleteEarlyDischargeViaXrm(id: string) {
-  const api = getXrmWebApi()
-  if (!api) throw new Error('Dataverse is not available for early discharge delete.')
-  await api.deleteRecord('and_earlydischarge_ipdvisits', cleanId(id))
+  await Services.earlyDischargePatients.delete(cleanId(id))
 }
 
 async function findInpatientByCodeViaXrm(code: string) {
-  const api = getXrmWebApi()
-  if (!api) return null
   const safe = escapeOData(code.trim())
-  const result = await api.retrieveMultipleRecords('and_inpatientlist', `?$select=and_inpatientlistid,and_name,and_patientname&$filter=and_name eq '${safe}'&$top=1`)
-  return result?.entities?.[0] || null
+  const patients = list(await Services.inpatientList.getAll({ select: ['and_inpatientlistid', 'and_name', 'and_patientname'], filter: `and_name eq '${safe}'`, top: 2 } as any))
+  if (patients.length > 1) throw new Error('Multiple inpatients have this exact code. Please correct the duplicate Inpatient List records.')
+  return patients[0] || null
 }
 
 async function triggerEarlyDischargeRollup(masterId: string) {
   const clean = cleanId(masterId)
   if (!clean) return
-  const candidates: any[] = []
-  try { candidates.push(window) } catch {}
-  try { candidates.push(window.parent) } catch {}
-  try { candidates.push(window.top) } catch {}
-  const context = candidates.map((candidate) => {
-    try { return candidate?.Xrm?.Utility?.getGlobalContext?.() } catch { return null }
-  }).find(Boolean)
-  const clientUrl = context?.getClientUrl?.()
-  if (!clientUrl) return
-  const endpoint = `${clientUrl}/api/data/v9.0/CalculateRollupField(Target=@tid,FieldName=@fn)?@tid={'@odata.id':'and_earlydischarges(${clean})'}&@fn='crda1_countofpatients'`
-  await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0' }, credentials: 'same-origin' }).catch((error) => {
-    console.warn('Early discharge rollup calculation failed', error)
-  })
-}
-
-function shiftWindow(reportDate: string, shift: Shift) {
-  const base = new Date(reportDate)
-  if (Number.isNaN(base.getTime())) return null
-  const start = new Date(base)
-  const end = new Date(base)
-  if (shift === 'Morning') {
-    start.setHours(8, 0, 0, 0)
-    end.setHours(16, 0, 0, 0)
-  } else if (shift === 'Evening') {
-    start.setHours(16, 0, 0, 0)
-    end.setDate(end.getDate() + 1)
-    end.setHours(0, 0, 0, 0)
-  } else {
-    start.setHours(20, 0, 0, 0)
-    end.setDate(end.getDate() + 1)
-    end.setHours(8, 0, 0, 0)
-  }
-  return { start: toDataverseLocalDateTime(start), end: toDataverseLocalDateTime(end) }
-}
-
-function toDataverseLocalDateTime(value: Date) {
-  const pad = (input: number) => String(input).padStart(2, '0')
-  const offsetMin = value.getTimezoneOffset()
-  const sign = offsetMin <= 0 ? '+' : '-'
-  const offsetAbs = Math.abs(offsetMin)
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}${sign}${pad(Math.floor(offsetAbs / 60))}:${pad(offsetAbs % 60)}`
+  await Services.calculateRollup.CalculateRollupField({
+    '@odata.type': 'Microsoft.Dynamics.CRM.and_earlydischarge',
+    and_earlydischargeid: clean,
+  }, 'crda1_countofpatients')
 }
 
 function toNumeric(value: any) {
@@ -2226,8 +2617,9 @@ async function retrieveSystemUserViaXrm(filter: string) {
 }
 
 function patientSchema(area: PatientArea) {
-  if (area === 'ER') return { service: Services.erVisits, select: ['cr301_ervisitsid', 'cr301_patienttext', 'cr301_patientcode', 'cr301_newcolumn'], name: 'cr301_patienttext', code: 'cr301_patientcode', id: 'cr301_ervisitsid', bind: 'dma_ERPatient@odata.bind', set: 'cr301_ervisitses' }
+  if (area === 'ER') return { service: Services.erVisits, entity: 'cr301_ervisits', select: ['cr301_ervisitsid', 'cr301_patient', 'cr301_patienttext', 'cr301_patientcode'], name: 'cr301_patient', fallbackName: 'cr301_patienttext', code: 'cr301_patientcode', id: 'cr301_ervisitsid', bind: 'dma_ERPatient@odata.bind', set: 'cr301_ervisitses' }
   if (area === 'IPD') return { service: Services.ipdPatients, select: ['ipd_patientid', 'ipd_patientname', 'ipd_patientcode', 'ipd_name'], name: 'ipd_patientname', code: 'ipd_patientcode', id: 'ipd_patientid', bind: 'dma_IPDPatients@odata.bind', set: 'ipd_patients' }
+  if (area === 'IPD_KSA') return { service: Services.inpatientList, entity: 'and_inpatientlist', select: ['and_inpatientlistid', 'and_patientname', 'and_name'], name: 'and_patientname', code: 'and_name', id: 'and_inpatientlistid', bind: 'dma_IPDPatientsKSA@odata.bind', set: 'and_inpatientlists' }
   if (area === 'OPD_KSA') return { service: Services.ksaPatients, select: ['opd_ksapatientsid', 'opd_name', 'opd_patientcode', 'opd_patientname'], name: 'opd_patientname', code: 'opd_patientcode', id: 'opd_ksapatientsid', bind: 'dma_OPDPatientKSA@odata.bind', set: 'opd_ksapatientses' }
   return { service: Services.opdPatients, select: ['opd_patientid', 'opd_patientname', 'opd_patientcode', 'opd_name'], name: 'opd_patientname', code: 'opd_patientcode', id: 'opd_patientid', bind: 'dma_OPDPatientEG@odata.bind', set: 'opd_patients' }
 }
@@ -2238,8 +2630,16 @@ async function searchPatients(area: PatientArea, value: string) {
   const safe = escapeOData(value.trim())
   const filter = `contains(${schema.name}, '${safe}') or contains(${schema.code}, '${safe}')`
   try {
-    const result = await schema.service.getAll({ select: schema.select, filter, top: 10 } as any)
-    return list(result).map((row: any) => ({ id: row[schema.id], name: row[schema.name] || row.cr301_newcolumn || row.ipd_name || row.opd_name || '', code: row[schema.code] || '', area }))
+    let rows: any[]
+    if (schema.service) {
+      rows = list(await schema.service.getAll({ select: schema.select, filter, top: 10 } as any))
+    } else {
+      const api = getXrmWebApi()
+      if (!api || !schema.entity) throw new Error('Dataverse patient search is not available.')
+      const result = await api.retrieveMultipleRecords(schema.entity, `?$select=${schema.select.join(',')}&$filter=${filter}&$top=10`)
+      rows = result?.entities || []
+    }
+    return rows.map((row: any) => ({ id: row[schema.id], name: row[schema.name] || (schema.fallbackName ? row[schema.fallbackName] : '') || row.ipd_name || row.opd_name || '', code: row[schema.code] || '', area }))
   } catch (error) {
     console.warn('Patient lookup failed', error)
     return []

@@ -1,4 +1,5 @@
 import './App.css'
+import './mobile-final.css'
 import { DutyManager } from './duty/DutyManager'
 
 function App() {

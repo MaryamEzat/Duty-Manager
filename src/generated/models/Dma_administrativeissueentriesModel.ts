@@ -27,6 +27,7 @@ export interface Dma_administrativeissueentriesBase {
   dma_description?: string;
   "dma_ERPatient@odata.bind"?: string;
   "dma_IPDPatients@odata.bind"?: string;
+  "dma_IPDPatientsKSA@odata.bind"?: string;
   "dma_IssueID@odata.bind"?: string;
   dma_name: string;
   "dma_OPDPatientEG@odata.bind"?: string;
@@ -52,6 +53,7 @@ export interface Dma_administrativeissueentries extends Dma_administrativeissuee
   createdonbehalfbyname?: string;
   createdonbehalfbyyominame: string;
   dma_erpatientname?: string;
+  dma_ipdpatientsksaname?: string;
   dma_ipdpatientsname?: string;
   dma_issueidname?: string;
   dma_opdpatientegname?: string;
@@ -77,6 +79,8 @@ export interface Dma_administrativeissueentries extends Dma_administrativeissuee
   _dma_erpatient_value?: string;
   dma_ipdpatients?: object;
   _dma_ipdpatients_value?: string;
+  dma_ipdpatientsksa?: object;
+  _dma_ipdpatientsksa_value?: string;
   dma_issueid?: object;
   _dma_issueid_value?: string;
   dma_opdpatienteg?: object;

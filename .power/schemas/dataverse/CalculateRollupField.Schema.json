@@ -1,0 +1,51 @@
+{
+  "name": "CalculateRollupField",
+  "title": "CalculateRollupField",
+  "type": "Microsoft.PowerApps/dataverseOperation",
+  "properties": {
+    "displayName": "CalculateRollupField",
+    "swagger": {
+      "swagger": "2.0",
+      "info": {
+        "title": "CalculateRollupField",
+        "version": "1.0"
+      },
+      "basePath": "/api/data/v9.2",
+      "paths": {
+        "/CalculateRollupField": {
+          "get": {
+            "operationId": "CalculateRollupField",
+            "parameters": [
+              {
+                "name": "Target",
+                "in": "query",
+                "required": true,
+                "type": "object",
+                "x-ms-dataverse-type": "LookupType",
+                "x-ms-csdl-type": "mscrm.crmbaseentity"
+              },
+              {
+                "name": "FieldName",
+                "in": "query",
+                "required": true,
+                "type": "string",
+                "x-ms-dataverse-type": "StringType",
+                "x-ms-csdl-type": "Edm.String"
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Success",
+                "schema": {
+                  "type": "object",
+                  "x-ms-dataverse-type": "LookupType",
+                  "x-ms-csdl-type": "mscrm.crmbaseentity"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

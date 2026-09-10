@@ -113,6 +113,31 @@
           "entitySetName": "systemusers",
           "logicalName": "systemuser",
           "isHidden": false
+        },
+        "earlydischarges": {
+          "entitySetName": "and_earlydischarges",
+          "logicalName": "and_earlydischarge",
+          "isHidden": false
+        },
+        "earlydischarge_ipdvisits": {
+          "entitySetName": "and_earlydischarge_ipdvisitses",
+          "logicalName": "and_earlydischarge_ipdvisits",
+          "isHidden": false
+        },
+        "inpatientlists": {
+          "entitySetName": "and_inpatientlists",
+          "logicalName": "and_inpatientlist",
+          "isHidden": false
+        },
+        "patientdischarges": {
+          "entitySetName": "crad2_patientdischarges",
+          "logicalName": "crad2_patientdischarge",
+          "isHidden": false
+        },
+        "environment_39a902ba": {
+          "entitySetName": "Environment",
+          "logicalName": "environment_39a902ba",
+          "isHidden": false
         }
       },
       "environmentVariableName": ""

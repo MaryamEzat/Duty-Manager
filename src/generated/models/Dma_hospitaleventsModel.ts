@@ -29,6 +29,7 @@ export interface Dma_hospitaleventsBase {
   dma_immediateactionstaken?: string;
   dma_incidentdescription?: string;
   "dma_IPDPatients@odata.bind"?: string;
+  "dma_IPDPatientsKSA@odata.bind"?: string;
   dma_name: string;
   "dma_OPDPatientEG@odata.bind"?: string;
   "dma_OPDPatientKSA@odata.bind"?: string;
@@ -53,6 +54,7 @@ export interface Dma_hospitalevents extends Dma_hospitaleventsBase {
   dma_erpatientname?: string;
   dma_eventcodename?: string;
   dma_eventtypename?: string;
+  dma_ipdpatientsksaname?: string;
   dma_ipdpatientsname?: string;
   dma_opdpatientegname?: string;
   dma_opdpatientksaname?: string;
@@ -81,6 +83,8 @@ export interface Dma_hospitalevents extends Dma_hospitaleventsBase {
   _dma_eventtype_value?: string;
   dma_ipdpatients?: object;
   _dma_ipdpatients_value?: string;
+  dma_ipdpatientsksa?: object;
+  _dma_ipdpatientsksa_value?: string;
   dma_opdpatienteg?: object;
   _dma_opdpatienteg_value?: string;
   dma_opdpatientksa?: object;

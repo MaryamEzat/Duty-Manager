@@ -1,0 +1,2394 @@
+/*
+ * Andalusia Pulse design layer (UI Components & Layout Skill v1.2).
+ * Loaded after App.css / mobile-final.css: defines the Pulse tokens, re-points the app's
+ * legacy tokens at them, then restyles shared components. Colors come from tokens only.
+ */
+
+:root {
+  /* ── Brand Gold ── */
+  --brand-gold-600:   #2B160A;
+  --gold-dark:        #A5845B;
+  --gold-light:       #F0C893;
+  --brand-gold:       #A5845B;
+  --brand-gold-400:   #F0C893;
+  --brand-gold-300:   #DFC6A9;
+  --brand-gold-100:   #F9F3ED;
+
+  /* ── Brand Green ── */
+  --green-dark:       #49604C;
+  --brand-green:      #49604C;
+  --brand-green-700:  #2E372D;
+  --brand-green-400:  #A3B189;
+  --brand-green-200:  #D1E0B1;
+  --brand-green-100:  #F5F7F5;
+
+  /* ── Ink / Neutrals ── */
+  --ink:              #211C1E;
+  --brand-black:      #211C1E;
+  --neutral-500:      #707070;
+  --neutral-400:      #D9D9D9;
+  --neutral-300:      #EDEDED;
+  --neutral-200:      #F7F7F7;
+
+  /* ── Warm Surfaces ── */
+  --canvas:           #F7F4EE;
+  --surface:          #FFFFFF;
+  --surface-hover:    #FBF8F2;
+  --border:           #E8E0D3;
+  --border-hover:     #D8CBB4;
+
+  /* ── Text Scale ── */
+  --text-primary:     #211C1E;
+  --text-body:        #514A44;
+  --muted:            #8A8079;
+  --dim:              #B3A99E;
+
+  /* ── Semantic Status ── */
+  --success:          #49604C;
+  --warning:          #C98A1E;
+  --danger:           #B23A3A;
+  --info:             #6B7B6E;
+  --alert:            #B23A3A;
+  --alert-soft:       rgba(178, 58, 58, 0.10);
+  --amber:            #C98A1E;
+  --amber-soft:       rgba(201, 138, 30, 0.12);
+
+  /* ── Soft Tints ── */
+  --gold-soft:        rgba(165, 132,  91, 0.12);
+  --green-soft:       rgba( 73,  96,  76, 0.12);
+  --danger-soft:      rgba(178,  58,  58, 0.10);
+  --warn-soft:        rgba(201, 138,  30, 0.12);
+  --gold-glow:        rgba(165, 132,  91, 0.22);
+  --green-glow:       rgba( 73,  96,  76, 0.22);
+
+  /* ── Gradients ── */
+  --grad-gold:        linear-gradient(135deg, #A5845B 0%, #F0C893 100%);
+  --grad-gold-dk:     linear-gradient(135deg, #2B160A 0%, #A5845B 100%);
+  --grad-green:       linear-gradient(135deg, #49604C 0%, #A3B189 100%);
+  --grad-green-dk:    linear-gradient(135deg, #2E372D 0%, #49604C 100%);
+  --grad-nav:         linear-gradient(135deg, #2B160A 0%, #211C1E 100%);
+  --grad-sidebar:     linear-gradient(160deg, #0D1A0B 0%, #0A150A 100%);
+  --grad-track:       linear-gradient(90deg,  #49604C, #A5845B);
+  --grad-card:        linear-gradient(180deg, #FFFFFF 0%, #F9F3ED 100%);
+
+  /* ── Sidebar Text ── */
+  --sidebar-text:        rgba(255, 255, 255, 0.78);
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-label:       rgba(255, 255, 255, 0.40);
+  --sidebar-active-bg:   rgba(165, 132, 91, 0.22);
+
+  /* ── Typography ── */
+  --sans: 'Outfit', -apple-system, sans-serif;
+  --body: 'Inter', -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+
+  /* ── Radius ── */
+  --r-sm:   8px;
+  --r-md:  12px;
+  --r-lg:  16px;
+  --r-xl:  22px;
+  --r-pill: 999px;
+
+  /* ── Shadows ── */
+  --shadow-sm:   0 1px  3px rgba(33, 28, 30, 0.06);
+  --shadow-md:   0 4px 12px rgba(33, 28, 30, 0.07);
+  --shadow-lg:   0 12px 32px rgba(33, 28, 30, 0.12);
+  --shadow-gold: 0 6px 20px rgba(165, 132, 91, 0.22);
+
+  /* ── Motion ── */
+  --ease:       cubic-bezier(0.22, 1, 0.36, 1);
+  --t-micro:    120ms;
+  --t-standard: 240ms;
+  --t-entrance: 360ms;
+
+  /* ── Legacy app tokens → Pulse tokens ── */
+  --primary:        var(--gold-dark);
+  --primary-light:  var(--brand-gold-100);
+  --primary-dark:   var(--brand-green-700);
+  --accent:         var(--green-dark);
+  --bg:             var(--canvas);
+  --bg-secondary:   var(--brand-gold-100);
+  --text-secondary: var(--text-body);
+  --text-muted:     var(--muted);
+  --border-light:   var(--border);
+  --shadow:         var(--shadow-sm);
+}
+
+/* ─────────────────────────── Typography ─────────────────────────── */
+
+body {
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: var(--body);
+}
+
+h1, h2, h3, h4,
+.page-title h1,
+.eyebrow,
+.btn,
+.field > span,
+.nav-tabs button,
+.app-rail button,
+.top-context small,
+.brand strong,
+.status-token,
+.section-header h2,
+.summary-card-head h2 {
+  font-family: var(--sans);
+}
+
+.page-title h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.field > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Required-field marker ("Label *"). !important because popup label rules colour every inner span grey. */
+.req-mark {
+  display: inline;
+  min-height: 0;
+  margin-left: 2px;
+  color: var(--danger) !important;
+  font-weight: 800;
+}
+
+/* Numbers, IDs, dates and counts */
+.dashboard-kpi strong,
+.command-pipeline b,
+.metric-cluster b,
+.timeline-row time,
+.retention-summary-item b,
+.textarea-count,
+.top-context span:nth-child(2) b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+/* ─────────────────────────── Sidebar ─────────────────────────── */
+
+.app-rail {
+  background: var(--grad-sidebar);
+  font-family: var(--sans);
+}
+
+.app-rail .dm-mark {
+  background: var(--grad-gold);
+  color: var(--surface);
+  border: 0;
+  box-shadow: var(--shadow-gold);
+}
+
+.app-rail button {
+  color: var(--sidebar-text);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-md);
+  transition: background var(--t-standard) var(--ease), color var(--t-standard) var(--ease);
+}
+
+.app-rail button:hover {
+  color: var(--sidebar-text-active);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.app-rail button.active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-text-active);
+  font-weight: 700;
+  box-shadow: inset 3px 0 var(--gold-light);
+}
+
+.app-rail.report-open button:nth-of-type(3)::before {
+  color: var(--sidebar-label);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+}
+
+/* Small screens: keep the sidebar on the left (never a bottom/footer nav), icon-only to save width.
+   Overrides the bottom-bar rules in App.css / mobile-final.css. Labels stay available via each button's title. */
+@media (max-width: 900px) {
+  .app-rail,
+  .app-rail.entry-only,
+  .app-rail.report-open {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    width: 64px;
+    max-width: 64px;
+    height: 100dvh;
+    margin: 0;
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 0;
+    box-shadow: var(--shadow-md);
+  }
+
+  .app-rail .dm-mark {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 8px;
+  }
+
+  .app-rail button,
+  .app-rail.entry-only button,
+  .app-rail.report-open button {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    flex: 0 0 44px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .app-rail button span,
+  .app-rail.report-open button span {
+    display: none;
+  }
+
+  .app-rail button .nav-icon,
+  .app-rail.report-open button .nav-icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
+
+  /* "Report" group label becomes a thin divider in the narrow rail. */
+  .app-rail.report-open button:nth-of-type(3) {
+    margin-top: 14px;
+  }
+
+  .app-rail.report-open button:nth-of-type(3)::before {
+    display: block;
+    content: "";
+    top: -9px;
+    left: 8px;
+    width: calc(100% - 16px);
+    padding: 0;
+    border-top: 1px solid var(--sidebar-label);
+  }
+
+  .app-rail.entry-only button:nth-of-type(n+3) {
+    display: none;
+  }
+
+  /* Content sits beside the rail; no space reserved for a bottom bar any more. */
+  .dm-app,
+  .dm-app:has(.dashboard) {
+    padding: 0 12px 24px 76px;
+  }
+}
+
+/* ─────────────────────────── Header ─────────────────────────── */
+
+.top,
+.top.workflow-top {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--brand-gold-100) 100%);
+  border-bottom: 1px solid var(--border);
+}
+
+.top-context small {
+  color: var(--muted);
+}
+
+/* ─────────────────────────── Cards ─────────────────────────── */
+
+.card, .alert-feed-shell, .post-card,
+.admin-metrics, .aging-board-card, .bu-status-card, .carry-register, .command-signal-grid,
+.current-register, .dama-unit, .dashboard-filter-card, .dashboard-kpi, .draft-strip,
+.early-discharge-card, .event-card, .event-summary-strip, .event-timeline, .executive-queue,
+.experience-card, .experience-register, .experience-summary, .flow-status-strip, .handover-ledger,
+.identity-card, .info-panel, .intervention-panel, .issue-register, .metric, .metric-tile,
+.network-table-card, .night-util-card, .ops-summary, .readiness-panel, .report-modal-summary,
+.report-surface, .retention-watch-card, .submitted-notifications, .submitted-summary,
+.summary-carry-card, .summary-hero, .summary-readiness, .theatre-flow-card, .util-tile {
+  background: var(--grad-card);
+  border-color: var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Dark panels keep their dark fill, recoloured to the brand green. */
+.transfer-state,
+.takeover-state,
+.command-intervention {
+  background: var(--grad-green-dk);
+  box-shadow: var(--shadow-md);
+}
+
+/* ─────────────────────────── Buttons ─────────────────────────── */
+
+.btn {
+  font-family: var(--sans);
+  font-weight: 600;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-body);
+  transition: background var(--t-standard) var(--ease), border-color var(--t-standard) var(--ease),
+    box-shadow var(--t-standard) var(--ease), color var(--t-standard) var(--ease), transform var(--t-micro) var(--ease);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn.primary,
+.btn.primary:hover:not(:disabled) {
+  background: var(--grad-gold);
+  border-color: transparent;
+  color: var(--surface);
+}
+
+.btn.primary:hover:not(:disabled) {
+  box-shadow: var(--shadow-gold);
+}
+
+.btn.danger {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--surface);
+}
+
+.btn.small {
+  border-radius: var(--r-sm);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+/* ─────────────────────────── Form fields ─────────────────────────── */
+
+input, select, textarea {
+  font-family: var(--body);
+  border: 1px solid var(--neutral-400);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  transition: border-color var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--brand-gold);
+  box-shadow: 0 0 0 3px var(--gold-soft);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--dim);
+}
+
+/* ─────────────────────────── Badges / chips ─────────────────────────── */
+
+.status-token {
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.status-token.ok       { background: var(--green-soft);  color: var(--green-dark); }
+.status-token.warning  { background: var(--warn-soft);   color: var(--warning); }
+.status-token.info     { background: var(--gold-soft);   color: var(--gold-dark); }
+.status-token.critical { background: var(--danger-soft); color: var(--danger); }
+
+/* Unread-alerts count: white number on red when there are unread alerts, neutral pill at zero. */
+.alert-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--sans);
+}
+
+.alert-button b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  margin-left: 0;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  font: 600 11px var(--mono);
+  line-height: 1;
+}
+
+.alert-button b.has-unread {
+  background: var(--danger);
+  color: var(--surface);
+  box-shadow: 0 2px 6px var(--danger-soft);
+}
+
+.alert-button b.is-zero {
+  background: var(--neutral-300);
+  color: var(--muted);
+}
+
+/* ─────────────────────────── Nav tabs ─────────────────────────── */
+
+.nav-tabs button {
+  font-weight: 600;
+  transition: color var(--t-standard) var(--ease), border-color var(--t-standard) var(--ease);
+}
+
+.nav-tabs button.active {
+  color: var(--gold-dark);
+  border-color: var(--gold-dark);
+}
+
+/* ─────────────────────────── Validation feedback (Pulse danger) ─────────────────────────── */
+
+.page-missing-banner {
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+  border-left-color: var(--danger);
+  border-radius: var(--r-md);
+  color: var(--danger);
+  font-family: var(--body);
+}
+
+.page-missing-banner strong { font-family: var(--sans); }
+
+.missing-chip,
+.missing-chip-list b {
+  border-color: var(--danger-soft);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--danger);
+  font-family: var(--sans);
+}
+
+.missing-chip:hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.has-missing {
+  border-color: var(--danger) !important;
+  border-left-color: var(--danger) !important;
+  background: var(--danger-soft) !important;
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.has-missing strong,
+.has-missing h3,
+.ready-line-link,
+.field .field-error,
+.textarea-meta.at-limit {
+  color: var(--danger);
+}
+
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: var(--danger);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.ready-line.is-complete b { color: var(--success); }
+.textarea-meta.near-limit { color: var(--warning); }
+.textarea-meta.at-limit .textarea-note { background: var(--danger-soft); }
+
+.summary-submit-bar {
+  background: var(--grad-card);
+  border-color: var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.summary-submit-bar small { color: var(--gold-dark); font-family: var(--sans); }
+
+.btn.summary-submit-btn {
+  background: var(--grad-gold);
+  border-color: transparent;
+  color: var(--surface);
+  box-shadow: none;
+}
+
+.btn.summary-submit-btn:hover:not(:disabled) {
+  box-shadow: var(--shadow-gold);
+}
+
+/* ─────────────────────────── Modals & drawers ─────────────────────────── */
+
+.modal {
+  background: rgba(33, 28, 30, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+.modal-content,
+.flow-popup {
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  animation: pulseModalIn var(--t-entrance) var(--ease);
+}
+
+@keyframes pulseModalIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ─────────────────────────── Toast rack (replaces the old sticky message) ─────────────────────────── */
+
+.toast-rack {
+  position: fixed;
+  right: 20px;
+  bottom: 68px;
+  z-index: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.toast-rack .toast {
+  position: static;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 270px;
+  max-width: 380px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand-gold);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  cursor: default;
+  animation: pulseToastIn var(--t-standard) var(--ease);
+}
+
+.toast-rack .toast-success { border-left-color: var(--success); }
+.toast-rack .toast-alert   { border-left-color: var(--danger); }
+
+.toast-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--gold-dark);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toast-success .toast-icon { stroke: var(--success); }
+.toast-alert .toast-icon   { stroke: var(--danger); }
+
+.toast-body { flex: 1; min-width: 0; }
+.toast-title { font: 700 12px var(--sans); color: var(--text-primary); }
+.toast-msg { margin-top: 2px; font: 400 11px/1.4 var(--body); color: var(--text-body); }
+
+.toast-close {
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-close:hover { color: var(--text-primary); }
+
+@keyframes pulseToastIn {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ─────────────────────────── Confirm dialog ─────────────────────────── */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(33, 28, 30, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-box {
+  width: min(440px, 100%);
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: pulseModalIn var(--t-entrance) var(--ease);
+}
+
+.confirm-hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--grad-card);
+}
+
+.confirm-hdr h3 {
+  margin: 0;
+  font: 800 14px var(--sans);
+  color: var(--brand-black);
+}
+
+.confirm-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-md);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.confirm-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.confirm-body {
+  padding: 18px;
+  font: 400 13px/1.5 var(--body);
+  color: var(--text-body);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 18px 18px;
+}
+
+.confirm-actions .btn { flex: 1; }
+.confirm-actions .btn.danger-solid {
+  flex: 2;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--surface);
+}
+
+.confirm-actions .btn.danger-solid:hover:not(:disabled) {
+  background: var(--danger);
+  box-shadow: 0 6px 16px var(--danger-soft);
+  filter: brightness(0.92);
+}
+
+/* ─────────────────────────── Motion ─────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─────────────────────────── Timelines (Events / Admin / Operations) ─────────────────────────── */
+
+/* Severity card removed from the Events strip: two cells now. */
+.event-summary-strip.two-cells {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.timeline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.timeline-filter {
+  --tone: var(--gold-dark);
+  --tone-soft: var(--gold-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-body);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+  transition: background var(--t-standard) var(--ease), border-color var(--t-standard) var(--ease), color var(--t-standard) var(--ease);
+}
+
+.timeline-filter b {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--tone-soft);
+  color: var(--tone);
+  font: 600 11px var(--mono);
+  text-align: center;
+}
+
+.timeline-filter .filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+
+.timeline-filter:hover { border-color: var(--tone); color: var(--tone); }
+
+.timeline-filter.tone-all     { --tone: var(--text-primary); --tone-soft: var(--neutral-300); }
+.timeline-filter.tone-danger  { --tone: var(--danger);  --tone-soft: var(--danger-soft); }
+.timeline-filter.tone-warning { --tone: var(--warning); --tone-soft: var(--warn-soft); }
+.timeline-filter.tone-success { --tone: var(--success); --tone-soft: var(--green-soft); }
+.timeline-filter.tone-gold    { --tone: var(--gold-dark); --tone-soft: var(--gold-soft); }
+
+.timeline-filter.active {
+  border-color: var(--tone);
+  background: var(--tone);
+  color: var(--surface);
+}
+
+.timeline-filter.active b { background: rgba(255, 255, 255, 0.24); color: var(--surface); }
+.timeline-filter.active .filter-dot { background: var(--surface); }
+
+/* Dot colours follow the filter tones. */
+.timeline-dot.major    { background: var(--danger); }
+.timeline-dot.moderate { background: var(--warning); }
+.timeline-dot.low      { background: var(--success); }
+.timeline-dot.warning  { background: var(--warning); }
+
+/* Row: time | dot | body | actions (owner column removed; action text now lives in the body). */
+.timeline-row.pulse-row {
+  grid-template-columns: 72px 34px minmax(0, 1fr) auto;
+  align-items: start;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.pulse-row > time,
+.pulse-row > .timeline-dot {
+  margin-top: 3px;
+}
+
+.tl-body { display: grid; gap: 4px; min-width: 0; }
+
+.pulse-row .tl-title {
+  margin: 0;
+  font: 700 15px var(--sans);
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+.tl-sub {
+  font: 600 12px var(--sans);
+  color: var(--gold-dark);
+}
+
+.pulse-row .tl-desc {
+  margin: 2px 0 0;
+  font: 400 13px/1.5 var(--body);
+  color: var(--text-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tl-field {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--gold-light);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--gold-soft);
+}
+
+.tl-field span {
+  display: block;
+  margin-bottom: 2px;
+  font: 700 10px var(--sans);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--gold-dark);
+}
+
+.pulse-row .tl-field p {
+  margin: 0;
+  font: 400 12px/1.5 var(--body);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Update + delete side by side. */
+.pulse-row .row-actions.compact,
+.early-discharge-row .row-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn.row-delete {
+  position: static;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.btn.row-delete svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn.row-delete:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--surface);
+}
+
+@media (max-width: 760px) {
+  .timeline-row.pulse-row { grid-template-columns: 52px 20px minmax(0, 1fr); }
+  .pulse-row .row-actions.compact { grid-column: 3; justify-content: flex-start; }
+  .event-summary-strip.two-cells { grid-template-columns: 1fr; }
+}
+/* Timeline fixes: the connector line is anchored to the dot's own grid column (so it always runs
+   through the dot, whatever the time-column width), the time column fits text like "Partial Outage",
+   and the list no longer reserves empty height under a short timeline. */
+.event-timeline:has(.pulse-row) {
+  min-height: 0;
+}
+
+.timeline-row.pulse-row {
+  padding-right: 18px;
+}
+
+.pulse-row > .timeline-dot {
+  position: relative;
+  z-index: 2;
+  justify-self: center;
+}
+
+/* One continuous connector for the whole timeline (per-row segments broke at every row).
+   --tl-x = row padding-left (18) + first column + gap (12) + half the dot column (17). */
+.timeline-row.pulse-row::before {
+  display: none;
+}
+
+.event-timeline:has(.pulse-row) {
+  --tl-x: 119px;
+}
+
+.event-timeline.ops-timeline:has(.pulse-row) {
+  --tl-x: 165px;
+}
+
+.event-timeline:has(.pulse-row)::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: var(--tl-x);
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--border-hover);
+  pointer-events: none;
+}
+
+/* Phones show each row as its own card, so the shared connector is hidden there. */
+@media (max-width: 900px) {
+  .event-timeline:has(.pulse-row)::before {
+    display: none;
+  }
+}
+
+/* Operations shows the outage type (text, not a time) in the first column. */
+.ops-timeline-row.pulse-row {
+  grid-template-columns: 118px 34px minmax(0, 1fr) auto;
+}
+
+.ops-timeline-row.pulse-row > time {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+@media (max-width: 760px) {
+  .ops-timeline-row.pulse-row { grid-template-columns: 90px 20px minmax(0, 1fr); }
+}
+/* Dashboard signal cards: whole card is the click target (no text links). */
+button.signal-card.is-clickable {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 18px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-standard) var(--ease);
+}
+
+button.signal-card.is-clickable.dark {
+  border-left: 4px solid var(--danger);
+  background: var(--grad-green-dk);
+}
+
+button.signal-card.is-clickable:hover {
+  background: var(--surface-hover);
+}
+
+button.signal-card.is-clickable.dark:hover {
+  background: var(--brand-green-700);
+}
+
+button.signal-card.is-clickable:focus-visible {
+  outline: 2px solid var(--gold-dark);
+  outline-offset: -2px;
+}
+/* ─────────────────────────── Popup validation (errors under each input) ─────────────────────────── */
+
+.field .field-error,
+.flow-popup-field .field-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--danger);
+  font: 600 11.5px/1.35 var(--body);
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.flow-popup-field.has-error input,
+.flow-popup-field.has-error select,
+.flow-popup-field.has-error textarea,
+.field.has-error .lookup-wrap input {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.flow-popup-field.has-error .shortage-bubble:not(.active) {
+  border-color: var(--danger);
+}
+
+/* ─────────────────────────── Home header (app bar + page header) ─────────────────────────── */
+
+.home-bell {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  transition: background var(--t-standard) var(--ease), color var(--t-standard) var(--ease);
+}
+
+.home-bell:hover { background: rgba(255, 255, 255, 0.08); color: var(--surface); }
+
+.home-bell svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home-bell b {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: var(--gold-light);
+  color: var(--brand-gold-600);
+  font: 700 9px var(--mono);
+}
+
+.home-user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.home-avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--grad-gold);
+  color: var(--surface);
+  font: 700 11px var(--sans);
+}
+
+.home-user-text {
+  display: grid;
+  line-height: 1.2;
+}
+
+.home-user-text strong { font: 600 12px var(--sans); color: var(--surface); }
+.home-user-text small { font: 400 10px var(--body); color: var(--sidebar-text); }
+
+.home-page-header {
+  padding: 16px 24px 18px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--brand-gold-100) 100%);
+}
+
+.home-breadcrumb {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font: 400 11px var(--body);
+}
+
+.home-page-title-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-page-title-row h1 {
+  margin: 0;
+  font: 700 22px var(--sans);
+  letter-spacing: -0.4px;
+  color: var(--text-primary);
+}
+
+.home-page-title-row p {
+  margin: 4px 0 0;
+  font: 400 13px var(--body);
+  color: var(--text-body);
+}
+
+.home-page-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .home-user-text { display: none; }
+}
+
+/* ─────────────────────────── Alerts drawer: wrap text, no sideways scroll ─────────────────────────── */
+
+.alert-drawer-list {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.alert-copy {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.alert-copy,
+.alert-copy * {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.alert-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.alert-lines > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.alert-lines dt {
+  font: 700 10px var(--sans);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.alert-lines dd {
+  margin: 0;
+  font: 400 12.5px/1.45 var(--body);
+  color: var(--text-body);
+}
+/* ─────────────────────────── Shared page header (Home + Dashboard) ─────────────────────────── */
+
+.app-header {
+  margin: 0 -22px 0 0;
+  padding: 14px 24px 18px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--brand-gold-100) 100%);
+}
+
+.app-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.app-header .home-breadcrumb { margin: 0; }
+
+.app-header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-header .home-bell {
+  color: var(--muted);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-header .home-bell:hover {
+  border-color: var(--border-hover);
+  background: var(--gold-soft);
+  color: var(--gold-dark);
+}
+
+.app-header .home-bell b {
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: var(--surface);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.app-header .home-user {
+  padding: 3px 12px 3px 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+
+.app-header .home-avatar { width: 28px; height: 28px; }
+.app-header .home-user-text strong { color: var(--text-primary); }
+.app-header .home-user-text small { color: var(--muted); }
+
+/* Dashboard: title now lives in the shared header; the filter bar keeps its own row. */
+.command-head.no-title {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.command-scope {
+  margin: 0;
+  font: 500 12px var(--body);
+  color: var(--text-body);
+}
+
+@media (max-width: 900px) {
+  .app-header { margin: 0 -12px; padding: 12px 12px 14px; }
+  .command-head.no-title { grid-template-columns: 1fr; }
+}
+
+/* ─────────────────────────── Tighter field errors ─────────────────────────── */
+
+/* Errors sit right under the input instead of a full field gap below it. */
+.field > .field-error {
+  margin-top: -4px;
+}
+
+.flow-popup-field > .field-error {
+  margin-top: -2px;
+}
+
+/* Textareas show their error on the counter line, left of "0 / 2,000". */
+.textarea-meta.has-error .textarea-note {
+  padding: 0;
+  background: none;
+  color: var(--danger);
+  font: 600 11.5px/1.35 var(--body);
+}
+
+.field.has-error .textarea-wrap textarea,
+.flow-popup-field.has-error .textarea-wrap textarea {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+/* ─────────────────────────── Patient-flow popup: header/footer span the full width ─────────────────────────── */
+
+/* The popup itself used to scroll with a reserved scrollbar gutter, leaving a gap right of the header.
+   Only the body scrolls now. */
+.flow-update-popup {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.flow-update-popup > .flow-popup-head,
+.flow-update-popup > .flow-popup-actions {
+  position: static;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.flow-update-popup > .flow-popup-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* ─────────────────────────── Compact shared header (one row) ─────────────────────────── */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+}
+
+.app-header-title { min-width: 0; }
+
+.app-header .home-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font: 500 13px var(--sans);
+  color: var(--muted);
+}
+
+/* The current page in the breadcrumb is the page title (no separate bold heading). */
+.app-header .home-breadcrumb h1 {
+  margin: 0;
+  font: 700 17px var(--sans);
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+}
+
+.app-header-title p {
+  margin: 2px 0 0;
+  font: 400 12px var(--body);
+  color: var(--text-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-header-user { gap: 10px; flex-shrink: 0; }
+.app-header .btn.primary { min-height: 36px; padding: 0 16px; }
+
+@media (max-width: 900px) {
+  .app-header { flex-wrap: wrap; }
+  .app-header-title p { white-space: normal; }
+}
+
+/* ─────────────────────────── Greeting banner in the Pulse palette ─────────────────────────── */
+
+.home-hero {
+  min-height: 0;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--gold-dark);
+  border-radius: var(--r-lg);
+  background: var(--grad-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-hero h1 {
+  margin: 0 0 4px;
+  font: 700 22px/1.2 var(--sans);
+  letter-spacing: -0.4px;
+  color: var(--text-primary);
+}
+
+.home-hero p {
+  margin: 0;
+  max-width: 760px;
+  font: 400 13px/1.5 var(--body);
+  color: var(--text-body);
+}
+
+.draft-current {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--gold-dark);
+}
+/* Breadcrumb page name: regular weight, not a bold heading. */
+.app-header .home-breadcrumb h1 {
+  font: 500 15px var(--sans);
+  letter-spacing: 0;
+}
+
+/* Dashboard filters: show each filter's label above its value (the labels were hidden). */
+.command-controls {
+  align-items: stretch;
+}
+
+.command-controls label {
+  gap: 1px;
+  padding: 6px 12px;
+}
+
+.command-controls label span {
+  display: block;
+  font: 700 9px var(--sans);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.command-controls input,
+.command-controls select {
+  min-height: 24px;
+}
+
+.command-controls .updated-pill,
+.command-controls .btn {
+  align-self: center;
+}
+/* Dashboard scope: "Showing" + chips instead of a loose dash-separated sentence. */
+.command-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.scope-label {
+  margin-right: 2px;
+  font: 700 10px var(--sans);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.scope-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font: 600 11px var(--sans);
+  color: var(--text-body);
+}
+
+.scope-chip.tone-shift { border-color: transparent; background: var(--gold-soft); color: var(--gold-dark); }
+.scope-chip.tone-date  { border-color: transparent; background: var(--green-soft); color: var(--green-dark); font-family: var(--mono); font-weight: 500; }
+
+/* Greeting banner keeps the "Start new report" action on its right. */
+.home-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.home-hero .hero-start {
+  flex-shrink: 0;
+  min-width: 0;
+  height: auto;
+  min-height: 40px;
+  padding: 0 18px;
+}
+
+@media (max-width: 760px) {
+  .home-hero { flex-direction: column; align-items: flex-start; }
+}
+/* Duplicate-draft warning on the General page. */
+.duplicate-draft-banner {
+  align-items: center;
+  margin: 0 0 14px;
+}
+
+.duplicate-draft-banner p {
+  margin: 0;
+  font: 400 12.5px/1.45 var(--body);
+  color: var(--text-body);
+}
+
+.duplicate-draft-banner strong { margin-bottom: 3px; }
+/* ─────────────────────────── In-app dropdown (replaces native selects on filters) ─────────────────────────── */
+
+.pulse-select { position: relative; min-width: 0; width: 100%; }
+
+.pulse-select-trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--neutral-400);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: 500 13px var(--body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease);
+}
+
+.pulse-select-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-select-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--t-standard) var(--ease);
+}
+
+.pulse-select-trigger.open svg { transform: rotate(180deg); }
+
+.pulse-select-trigger:focus-visible,
+.pulse-select-trigger.open {
+  outline: none;
+  border-color: var(--brand-gold);
+  box-shadow: 0 0 0 3px var(--gold-soft);
+}
+
+.pulse-select-list {
+  position: fixed;
+  z-index: 900;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: pulseModalIn var(--t-standard) var(--ease);
+}
+
+.pulse-select-list li {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font: 400 13px/1.35 var(--body);
+  color: var(--text-primary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.pulse-select-list li.active { background: var(--surface-hover); }
+
+.pulse-select-list li.selected {
+  background: var(--gold-soft);
+  color: var(--gold-dark);
+  font-weight: 600;
+}
+
+/* Inside the dashboard filter bar the trigger is borderless, like the date input next to it. */
+.command-controls .pulse-select-trigger {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font: 600 12px var(--body);
+}
+
+.command-controls .pulse-select-trigger.open,
+.command-controls .pulse-select-trigger:focus-visible {
+  box-shadow: none;
+  color: var(--gold-dark);
+}
+
+/* Recent handovers filters: two columns, stacking when the space is narrow. */
+.recent-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  width: min(520px, 100%);
+}
+
+.recent-filter {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.recent-filter strong {
+  font: 700 10px var(--sans);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .recent-filters { grid-template-columns: minmax(0, 1fr); }
+}
+/* Beat the legacy `.home-section-head .modern-filter` rule (!important, 2 x 160px minimum) that
+   pushed the second filter off-screen on narrow widths. */
+.home-section-head .recent-filters {
+  width: min(520px, 100%) !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 560px) {
+  .home-section-head .recent-filters {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+/* Dashboard: the "Showing" line is gone (the filters already state the scope); filter bar sits on the right. */
+.command-head.no-title {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+}
+
+@media (max-width: 900px) {
+  .command-head.no-title { justify-items: stretch; }
+}
+
+/* ─────────────────────────── Report viewer: patient flow in related groups ─────────────────────────── */
+
+.report-flow-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.report-group {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* Groups holding a long text value (Staff coverage, Narratives) take the full width. */
+.report-group:has(.report-metric.wide) {
+  grid-column: 1 / -1;
+}
+
+.report-group h4 {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--brand-gold-100);
+  font: 700 10px var(--sans);
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--gold-dark);
+}
+
+.report-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.report-group .report-metric {
+  min-height: 0;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+}
+
+.report-group .report-metric + .report-metric {
+  border-left: 1px solid var(--border);
+}
+
+.report-group .report-metric.wide {
+  grid-column: 1 / -1;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+}
+
+.report-group .report-metric b {
+  font-family: var(--sans);
+}
+
+@media (max-width: 760px) {
+  .report-flow-groups { grid-template-columns: minmax(0, 1fr); }
+  .report-group .report-metric + .report-metric { border-left: 0; border-top: 1px solid var(--border); }
+}
+/* ─────────────────────────── In-app pop-ups: layering, errors, calendar ─────────────────────────── */
+
+/* Above popups/modals (z-index 1000) since lists and calendars are also used inside them. */
+.pulse-select-list,
+.pulse-calendar {
+  z-index: 1100;
+}
+
+.pulse-select-trigger.is-placeholder span { color: var(--dim); }
+.pulse-select-trigger:disabled {
+  background: var(--neutral-200);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.pulse-select-list .empty-option {
+  color: var(--muted);
+  cursor: default;
+}
+
+.field.has-error .pulse-select-trigger,
+.flow-popup-field.has-error .pulse-select-trigger {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.pulse-date-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pulse-calendar {
+  position: fixed;
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: pulseModalIn var(--t-standard) var(--ease);
+}
+
+.pulse-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pulse-calendar-head strong {
+  font: 600 13px var(--sans);
+  color: var(--text-primary);
+}
+
+.pulse-calendar-head button,
+.pulse-calendar-foot button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pulse-calendar-head button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.pulse-calendar-head button:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.pulse-calendar-head svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pulse-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.pulse-calendar-grid .weekday {
+  padding: 4px 0;
+  text-align: center;
+  font: 700 10px var(--sans);
+  color: var(--muted);
+}
+
+.pulse-calendar-grid button {
+  aspect-ratio: 1;
+  min-height: 30px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font: 500 12px var(--mono);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.pulse-calendar-grid button:hover { background: var(--surface-hover); }
+.pulse-calendar-grid button.outside { color: var(--dim); }
+.pulse-calendar-grid button.today { box-shadow: inset 0 0 0 1px var(--gold-dark); }
+
+.pulse-calendar-grid button.selected {
+  background: var(--grad-gold);
+  color: var(--surface);
+  font-weight: 700;
+}
+
+.pulse-calendar-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.pulse-calendar-foot button {
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font: 600 12px var(--sans);
+  color: var(--gold-dark);
+}
+
+.pulse-calendar-foot button:hover { background: var(--gold-soft); }
+
+/* General page: report date + time side by side in the one identity-grid cell. */
+.report-date-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(104px, 0.6fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .report-date-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ─────────────────────────── Header on narrow screens: one row, compact user area ─────────────────────────── */
+
+@media (max-width: 900px) {
+  .app-header {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .app-header-title { flex: 1 1 auto; min-width: 0; }
+
+  .app-header .home-breadcrumb { flex-wrap: wrap; row-gap: 0; }
+
+  .app-header-title p {
+    white-space: normal;
+    font-size: 11px;
+  }
+
+  .app-header-user { gap: 8px; }
+
+  .app-header .home-user {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .app-header .home-bell { width: 32px; height: 32px; }
+}
+/* Very narrow frames: the Expected → Submitted → Acknowledged → Action required strip becomes a 2×2 grid. */
+@media (max-width: 420px) {
+  .command-pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 10px;
+    padding: 10px 6px;
+  }
+
+  .command-pipeline > span { display: none; }
+}
+/* Very narrow frames: smaller greeting that wraps between words, not inside them ("afternoo / n"). */
+@media (max-width: 420px) {
+  .home-hero { padding: 16px; }
+  .home-hero h1 {
+    font-size: 19px !important;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: auto;
+  }
+}
+/* ─────────────────────────── Phones: popup fields packed at the top ─────────────────────────── */
+
+/* The field list fills the popup height on phones; without this the grid spread the rows apart,
+   leaving large gaps between each label, input and the next field. */
+.flow-popup-stack,
+.form-modal-body,
+.flow-popup-body {
+  align-content: start;
+}
+
+.flow-popup-stack .field,
+.flow-popup-stack .flow-popup-field {
+  align-content: start;
+}
+
+/* ─────────────────────────── Phones: timeline cards (Events / Admin / Operations) ─────────────────────────── */
+
+@media (max-width: 900px) {
+  .timeline-row.pulse-row {
+    grid-template-columns: 12px minmax(0, 1fr);
+    grid-template-areas:
+      "dot  time"
+      "body body"
+      "act  act";
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 8px;
+    padding: 14px;
+  }
+
+  .timeline-row.pulse-row > .timeline-dot { grid-area: dot; margin: 0; justify-self: start; }
+  .timeline-row.pulse-row > time { grid-area: time; margin: 0; }
+  .timeline-row.pulse-row > .tl-body { grid-area: body; }
+
+  /* Update + delete on one line, right-aligned, same height. */
+  .timeline-row.pulse-row .row-actions.compact {
+    grid-area: act;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .timeline-row.pulse-row .row-actions.compact .btn {
+    width: auto;
+    min-width: 0;
+    min-height: 36px;
+    margin: 0;
+  }
+
+  .timeline-row.pulse-row .row-actions.compact .btn:not(.row-delete) {
+    flex: 1 1 auto;
+    max-width: 160px;
+  }
+
+  .timeline-row.pulse-row .row-actions.compact .btn.row-delete {
+    position: static;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+  }
+}
+
+/* Operations shows the outage type in the time slot: let it wrap next to the dot. */
+@media (max-width: 900px) {
+  .ops-timeline-row.pulse-row { grid-template-columns: 12px minmax(0, 1fr); }
+}
+/* ─────────────────────────── Previous-handover acknowledgment gate ─────────────────────────── */
+
+.nav-tabs button.locked {
+  opacity: 0.55;
+}
+
+.nav-tabs button.locked::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  vertical-align: -1px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.ack-gate {
+  max-width: 620px;
+  margin: 32px auto;
+  padding: 28px 28px 24px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--gold-dark);
+  border-radius: var(--r-lg);
+  background: var(--grad-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.ack-gate-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--grad-gold);
+  color: var(--surface);
+  box-shadow: var(--shadow-gold);
+}
+
+.ack-gate-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ack-gate h2 {
+  margin: 4px 0 0;
+  font: 700 18px var(--sans);
+  letter-spacing: -0.2px;
+  text-transform: none;
+  color: var(--text-primary);
+}
+
+.ack-gate p {
+  margin: 0;
+  max-width: 480px;
+  font: 400 13px/1.55 var(--body);
+  color: var(--text-body);
+}
+
+.ack-gate-status { color: var(--gold-dark) !important; font-weight: 600 !important; }
+
+.ack-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ack-check-failed {
+  align-items: center;
+  margin: 12px 0 0;
+  border-left-color: var(--warning);
+  background: var(--warn-soft);
+  color: var(--text-primary);
+}
+
+.ack-check-failed p { margin: 2px 0 0; font: 400 12.5px/1.45 var(--body); color: var(--text-body); }
+/* Gradient fills (gold primary buttons etc.) behind a transparent 1px border: by default the gradient is
+   sized to the padding box and repeats into the border strip, drawing a thin dark line on the right/bottom
+   edge. Sizing it to the border box removes the seam. */
+.btn,
+.home-avatar,
+.home-appbar-mark,
+.app-rail .dm-mark,
+.ack-gate-icon,
+.pulse-calendar-grid button.selected,
+.summary-submit-btn,
+.hero-start {
+  /* !important: rules that set the gradient with the background shorthand reset the origin. */
+  background-origin: border-box !important;
+}
+/* ─────────────────────────── Dashboard toolbar: full width, aligned with the cards ─────────────────────────── */
+
+.command-head.no-title {
+  display: block;
+  width: 100%;
+}
+
+.command-head.no-title .command-controls {
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--grad-card);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The four filters share the left side evenly; duty manager gets a little more room for long names. */
+.command-head.no-title .command-controls label {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 16px;
+  border-right: 1px solid var(--border);
+}
+
+.command-head.no-title .command-controls label:nth-of-type(4) { flex-grow: 1.5; }
+
+/* Status + actions grouped on the right. */
+.command-head.no-title .command-controls .updated-pill {
+  margin: 0 8px 0 16px;
+  white-space: nowrap;
+}
+
+.command-head.no-title .command-controls .btn {
+  align-self: center;
+  margin: 0 6px 0 0;
+}
+
+.command-head.no-title .command-controls .btn.sync {
+  margin-right: 12px;
+}
+
+@media (max-width: 1100px) {
+  .command-head.no-title .command-controls { flex-wrap: wrap; }
+  .command-head.no-title .command-controls label { flex: 1 1 45%; border-bottom: 1px solid var(--border); }
+  .command-head.no-title .command-controls .updated-pill { margin: 10px auto 10px 16px; }
+  .command-head.no-title .command-controls .btn { margin-top: 10px; margin-bottom: 10px; }
+}
+
+@media (max-width: 560px) {
+  .command-head.no-title .command-controls label { flex-basis: 100%; border-right: 0; }
+  .command-head.no-title .command-controls .updated-pill { flex-basis: 100%; margin: 10px 16px 0; text-align: center; }
+  .command-head.no-title .command-controls .btn { flex: 1 1 0; margin: 10px 8px 12px; }
+}
+/* ─────────────────────────── Recent handovers: search, date, sort ─────────────────────────── */
+
+/* Four filters no longer fit beside the title: they get their own full-width row. */
+.home-section-head:has(.recent-filters) {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.home-section-head .recent-filters {
+  width: 100% !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 900px) {
+  .home-section-head .recent-filters { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+@media (max-width: 560px) {
+  .home-section-head .recent-filters { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+.search-input {
+  position: relative;
+}
+
+.search-input svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.search-input input {
+  min-height: 40px;
+  padding-left: 34px;
+  font-size: 13px;
+}
+
+.ledger-head .sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.ledger-head .sort-header svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.45;
+}
+
+.ledger-head .sort-header:hover { color: var(--text-primary); }
+.ledger-head .sort-header.active { color: var(--gold-dark); }
+.ledger-head .sort-header.active svg { opacity: 1; }
+
+.pager span {
+  font: 500 12px var(--body);
+  color: var(--text-body);
+}
+
+/* ─────────────────────────── Alerts drawer: Open / Done sections ─────────────────────────── */
+
+.alert-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 22px 8px;
+  border: 0;
+  background: transparent;
+  font: 700 11px var(--sans);
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+}
+
+.alert-section-title b {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--gold-soft);
+  color: var(--gold-dark);
+  font: 600 11px var(--mono);
+  text-align: center;
+}
+
+.alert-done-toggle {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.alert-done-toggle b { background: var(--green-soft); color: var(--green-dark); }
+
+.alert-done-toggle svg {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.alert-done-toggle:hover { color: var(--text-primary); }
+
+.alert-all-clear {
+  margin: 0 22px 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--green-soft);
+  font: 500 12.5px var(--body);
+  color: var(--green-dark);
+}
+
+/* Done alerts are not greyed out; a green check dot marks them instead. */
+.alert-item,
+.alert-item.read,
+.alert-item.is-done {
+  opacity: 1;
+}
+
+.alert-dot.done {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+
+.alert-done,
+.alert-reopen {
+  border-radius: var(--r-sm);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+}
+
+.alert-done {
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.alert-reopen {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-body);
+}
+
+.alert-reopen:hover { border-color: var(--border-hover); color: var(--text-primary); }
+/* Current shift items: the Open button sits where the old static "Open / Next update due" text was. */
+.current-row .current-open {
+  justify-self: end;
+  min-width: 72px;
+}
+/* Alerts drawer: Open / Done switch pinned under the header. */
+.alert-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 12px 16px 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  flex-shrink: 0;
+}
+
+.alert-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  font: 600 12.5px var(--sans);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: background var(--t-standard) var(--ease), color var(--t-standard) var(--ease);
+}
+
+.alert-switch button b {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--neutral-300);
+  font: 600 11px var(--mono);
+}
+
+.alert-switch button.active {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.alert-switch button.active b { background: var(--gold-soft); color: var(--gold-dark); }
+.alert-switch button:nth-child(2).active b { background: var(--green-soft); color: var(--green-dark); }
+
+.alert-all-clear.neutral { background: var(--surface-hover); color: var(--text-body); }
+.alert-drawer-list > .alert-all-clear { margin-top: 12px; }
+/* Rows with the Open button: content | status | button, so the button sits at the right edge
+   (the old 4-column grid left an empty last column after the static text was removed). */
+.current-row:has(.current-open) {
+  grid-template-columns: minmax(0, 1fr) auto 88px;
+}
+
+@media (max-width: 700px) {
+  .current-row:has(.current-open) { grid-template-columns: minmax(0, 1fr) auto; }
+  .current-row:has(.current-open) > div:first-child { grid-column: 1 / -1; }
+}
+/* ─────────────────────────── Pulse Shared Navigation (pulse-shared-navigation) integration ─────────────────────────── */
+
+/* Layer the Pulse hub sidebar and its menu button above our own sidebar/header (z 20–50) but below
+   toasts, dialogs and pop-up lists. */
+.psn-root,
+.psn-menu-btn {
+  --psn-z: 200;
+}
+
+/* "Pulse Apps" launcher at the top of our sidebar: opens the shared Pulse navigation (all apps). */
+.pulse-apps-slot {
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.app-rail .pulse-apps-btn {
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 1px solid rgba(240, 200, 147, 0.35);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--sidebar-text-active);
+  font: 600 13px var(--sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-standard) var(--ease), border-color var(--t-standard) var(--ease);
+}
+
+.app-rail .pulse-apps-btn .nav-icon { color: var(--gold-light); }
+
+.app-rail .pulse-apps-btn:hover,
+.app-rail .pulse-apps-btn[aria-expanded="true"] {
+  border-color: var(--gold-light);
+  background: var(--sidebar-active-bg);
+}
+
+@media (max-width: 900px) {
+  .app-rail .pulse-apps-btn {
+    justify-content: center;
+    padding: 0;
+    gap: 0;
+  }
+
+  .app-rail .pulse-apps-btn span { display: none; }
+}
+.app-rail .pulse-apps-btn .nav-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

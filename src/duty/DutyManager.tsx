@@ -1,15 +1,432 @@
-import { Children, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Children, cloneElement, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   adminFallbackOptions, businessUnits, labelFor, resolutionOptions, serviceAffectedOptions, serviceFunctionalityOptions,
   opsIssueOptions, Services, severityOptions, shiftFromValue, shiftMap, shortageOptions, staffOptions,
   type AdminIssue, type DamaEntry, type DraftRecord, type EarlyDischarge, type EventItem, type FormState, type MainView, type OpsIssue, type PatientArea, type Resolution, type Severity, type Shift, type TabKey,
 } from './data'
-import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, reportCode, shortDate, shortTime, unwrap, validate } from './utils'
+import { createDataverseClient, PulseNavigation } from 'pulse-shared-navigation'
+import { MicrosoftDataverseService } from '../generated/services/MicrosoftDataverseService'
+import { downloadReportPdf, type PdfField, type PdfReport, type PdfSection } from './reportPdf'
+import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, missingFieldTab, reportCode, sameHandover, shortDate, shortTime, unwrap, validate } from './utils'
+
+// Pulse is the container for all apps: the shared Pulse navigation opens from the "Pulse Apps" button at
+// the top of our sidebar (same pattern as the other Pulse apps). One client for the app's lifetime.
+const pulseClient = createDataverseClient(MicrosoftDataverseService)
+// This app's Power Apps id (power.config.json appId), so Pulse highlights Duty Manager.
+const DUTY_MANAGER_APP_ID = 'bb72cb69-df81-4520-ad19-da8de18c6f49'
+
+type ReportSort = { key: 'date' | 'manager' | 'state' | 'submitted'; dir: 'asc' | 'desc' }
+
+// Local calendar day ("YYYY-MM-DD") of a Dataverse date-time, for date filters.
+function localDateKey(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 type AlertRow = { id: string; title: string; description: string; severity: string; isRead: boolean; createdOn?: string; reportId?: string }
 
 type ReportBundle = { report: any; flow: any[]; flowEntries: any[]; events: any[]; admin: any[]; ops: any[]; experience: any[]; loading?: boolean }
 const governmentVisitOptions: [string, string][] = [['999740000', 'Yes'], ['999740001', 'No']]
+
+// Set once the user tries to submit, so every page can flag its own missing required fields.
+const ValidationContext = createContext<{ show: boolean; missing: string[] }>({ show: false, missing: [] })
+const reportTabs: [string, string, TabKey][] = [
+  ['01', 'General / Shift Identity', 'general'],
+  ['02', 'Hospital Events', 'events'],
+  ['03', 'Administrative Issues', 'admin'],
+  ['04', 'Patient Flow', 'flow'],
+  ['05', 'Operations', 'ops'],
+  ['06', 'Experience', 'experience'],
+]
+// Row labels validate() uses for list items, e.g. "DAMA Entry 2 Reason" belongs to row "DAMA Entry 2".
+const missingItemPattern = /^(Event \d+|Admin Issue \d+|Ops Issue \d+|DAMA Entry \d+|Discharge Patient \d+|Tomorrow Discharge Plan)\b/
+
+// Returns a checker telling whether a list row (e.g. "Event 1") has missing fields after a submit attempt.
+function useMissingItem() {
+  const validation = useContext(ValidationContext)
+  return (item: string) => validation.show && validation.missing.some((field) => field.startsWith(`${item} `))
+}
+
+// ── Pulse feedback: toast rack + confirm dialog (the design system forbids alert()/confirm()) ──
+
+type ToastKind = 'success' | 'alert' | 'info'
+
+function toastKind(message: string): ToastKind {
+  if (/fail|could not|cannot|unable|error|please|not deleted|not found|missing|required/i.test(message)) return 'alert'
+  if (/success|saved|submitted|acknowledged|deleted|created|added|removed|updated/i.test(message)) return 'success'
+  return 'info'
+}
+
+const toastTitles: Record<ToastKind, string> = { success: 'Done', alert: 'Action needed', info: 'Notice' }
+
+function ToastRack({ message, onClose }: { message: string; onClose: () => void }) {
+  const kind = toastKind(message)
+  useEffect(() => {
+    if (!message) return
+    // Errors stay longer so they can be read; everything else uses the standard 4.5s.
+    const timer = window.setTimeout(onClose, kind === 'alert' ? 8000 : 4500)
+    return () => window.clearTimeout(timer)
+  }, [message, kind, onClose])
+  return <div className="toast-rack" aria-live="polite">
+    {message && <div className={`toast toast-${kind}`} role={kind === 'alert' ? 'alert' : 'status'}>
+      <svg className="toast-icon" viewBox="0 0 24 24" aria-hidden="true">
+        {kind === 'success' ? <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></>
+          : kind === 'alert' ? <><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4" /><path d="M12 17h.01" /></>
+          : <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></>}
+      </svg>
+      <div className="toast-body"><div className="toast-title">{toastTitles[kind]}</div><div className="toast-msg">{message}</div></div>
+      <button type="button" className="toast-close" aria-label="Dismiss" onClick={onClose}>×</button>
+    </div>}
+  </div>
+}
+
+type ConfirmRequest = { title: string; message: string; confirmLabel: string; resolve: (ok: boolean) => void }
+let openConfirmDialog: ((request: ConfirmRequest) => void) | null = null
+
+// Promise-based replacement for window.confirm, rendered by <ConfirmHost />.
+function pulseConfirm(title: string, message: string, confirmLabel = 'Delete'): Promise<boolean> {
+  if (!openConfirmDialog) return Promise.resolve(false)
+  return new Promise((resolve) => openConfirmDialog?.({ title, message, confirmLabel, resolve }))
+}
+
+function ConfirmHost() {
+  const [request, setRequest] = useState<ConfirmRequest | null>(null)
+  useEffect(() => {
+    openConfirmDialog = setRequest
+    return () => { openConfirmDialog = null }
+  }, [])
+  useEffect(() => {
+    if (!request) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  function close(ok: boolean) {
+    request?.resolve(ok)
+    setRequest(null)
+  }
+  if (!request) return null
+  return <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => { if (event.target === event.currentTarget) close(false) }}>
+    <div className="confirm-box">
+      <div className="confirm-hdr">
+        <span className="confirm-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg></span>
+        <h3 id="confirm-title">{request.title}</h3>
+      </div>
+      <div className="confirm-body">{request.message}</div>
+      <div className="confirm-actions">
+        <button type="button" className="btn" onClick={() => close(false)}>Cancel</button>
+        <button type="button" className="btn danger-solid" autoFocus onClick={() => close(true)}>{request.confirmLabel}</button>
+      </div>
+    </div>
+  </div>
+}
+
+// ── Previous handover acknowledgment ──
+// The latest submitted handover for the same business unit must be acknowledged before the incoming
+// duty manager can work on the new report (every page except General is locked until then).
+type PreviousHandover = { report: any; carryItems: any[]; loading: boolean; failed: boolean; message: string; acknowledge: () => Promise<void>; retry: () => void; markAcknowledged: (id: string, timestamp: string) => void }
+
+function usePreviousHandover(active: boolean, form: FormState, reportId: string, acknowledgeHandover: (id: string) => Promise<void>): PreviousHandover {
+  const [report, setReport] = useState<any>(null)
+  const [carryItems, setCarryItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [message, setMessage] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    if (!active || !form.businessUnit || !form.reportDate) return
+    let cancelled = false
+    setLoading(true)
+    setFailed(false)
+    setMessage('')
+    ;(async () => {
+      try {
+        // A lookup that never answers must not lock the report forever: after 15s it counts as failed.
+        const timeout = new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Previous handover lookup timed out')), 15000))
+        const found = await Promise.race([retrievePreviousSameBuReport(form, reportId), timeout])
+        const carried = found?.dma_handoverreportid ? await Promise.race([retrieveCarryForwardItems(cleanId(found.dma_handoverreportid)), timeout]).catch(() => []) : []
+        if (!cancelled) { setReport(found); setCarryItems(carried) }
+      } catch (error) {
+        console.warn('Previous handover lookup failed', error)
+        if (!cancelled) { setReport(null); setCarryItems([]); setFailed(true); setMessage('Could not retrieve the previous handover.') }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, form.businessUnit, form.reportDate, reportId, attempt])
+
+  // Uses the app-wide acknowledgment so the report viewer and Home list update too.
+  async function acknowledge() {
+    if (!report?.dma_handoverreportid) return
+    setMessage('Acknowledging previous handover...')
+    try {
+      await acknowledgeHandover(report.dma_handoverreportid)
+      setMessage('Previous handover acknowledged.')
+    } catch (error) {
+      console.warn('Previous handover acknowledgment failed', error)
+      setMessage('Could not acknowledge the previous handover.')
+    }
+  }
+
+  // Called when the same report is acknowledged anywhere else (e.g. from the report viewer).
+  function markAcknowledged(id: string, timestamp: string) {
+    setReport((current: any) => current && cleanId(current.dma_handoverreportid) === cleanId(id) ? { ...current, dma_dmacknowledgmenttimestamp: timestamp } : current)
+    setMessage('Previous handover acknowledged.')
+  }
+
+  return { report, carryItems, loading, failed, message, acknowledge, retry: () => setAttempt((n) => n + 1), markAcknowledged }
+}
+
+// True while a previous handover exists and is not yet acknowledged (or is still being checked).
+function acknowledgmentPending(previous: PreviousHandover) {
+  if (previous.loading) return true
+  return Boolean(previous.report?.dma_handoverreportid) && !previous.report.dma_dmacknowledgmenttimestamp
+}
+
+function AcknowledgeGate({ previous, openReport, goGeneral }: { previous: PreviousHandover; openReport: (id: string) => void; goGeneral: () => void }) {
+  const r = previous.report
+  return <main className="workflow-page ack-gate-page">
+    <section className="ack-gate" role="alert">
+      <span className="ack-gate-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg></span>
+      {previous.loading ? <>
+        <h2>Checking the previous handover...</h2>
+        <p>Looking for the latest submitted handover for this business unit.</p>
+      </> : <>
+        <h2>Acknowledge the previous handover to continue</h2>
+        <p>You need to review and acknowledge <b>{r?.dma_name || 'the previous handover'}</b>{r ? ` (${labelFor(businessUnits, r.dma_businessunit)} · ${shiftFromValue(r.dma_shifttype)} shift · ${formatDate(r.dma_reportdate)})` : ''} before working on this report.</p>
+        {previous.message && <p className="ack-gate-status">{previous.message}</p>}
+        <div className="ack-gate-actions">
+          {r?.dma_handoverreportid && <button type="button" className="btn" onClick={() => openReport(r.dma_handoverreportid)}>View previous report</button>}
+          <button type="button" className="btn primary" onClick={previous.acknowledge}>Acknowledge</button>
+          <button type="button" className="btn" onClick={goGeneral}>Go to General</button>
+        </div>
+      </>}
+    </section>
+  </main>
+}
+
+// ── Shared timeline pieces (Events, Admin issues, Operations) ──
+
+type FilterOption = { value: string; label: string; count: number; tone: 'all' | 'danger' | 'warning' | 'success' | 'gold' }
+
+// Coloured filter pills above a timeline; the active pill is filled in its tone.
+function TimelineFilters({ options, value, onChange, label }: { options: FilterOption[]; value: string; onChange: (value: string) => void; label: string }) {
+  return <div className="timeline-filters" role="group" aria-label={label}>
+    {options.map((option) => <button type="button" key={option.value} className={`timeline-filter tone-${option.tone}${value === option.value ? ' active' : ''}`} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>
+      {option.tone !== 'all' && <i className="filter-dot" />}{option.label}<b>{option.count}</b>
+    </button>)}
+  </div>
+}
+
+// ── In-app pop-ups (dropdown list, calendar) ──
+// Native <select> lists and date pickers are drawn by the browser and can spill outside the app frame
+// (the Power Apps iframe). These are rendered at page level (so overflow:hidden containers don't clip
+// them), kept inside the viewport, opened upward when there is no room below, and they follow their
+// trigger while the page scrolls.
+function useFloating(open: boolean, close: () => void, minWidth: number, preferredHeight: number, maxWidth = Infinity) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const floatingRef = useRef<HTMLElement | null>(null)
+  const [style, setStyle] = useState<React.CSSProperties>({})
+
+  const position = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const gutter = 8
+    const width = Math.min(Math.max(rect.width, minWidth), maxWidth, window.innerWidth - gutter * 2)
+    const left = Math.min(Math.max(gutter, rect.left), window.innerWidth - width - gutter)
+    const below = window.innerHeight - rect.bottom - gutter
+    const above = rect.top - gutter
+    const openUp = below < Math.min(preferredHeight, 220) && above > below
+    const maxHeight = Math.max(140, Math.min(preferredHeight, (openUp ? above : below) - 4))
+    setStyle(openUp
+      ? { left, width, maxHeight, bottom: window.innerHeight - rect.top + 4 }
+      : { left, width, maxHeight, top: rect.bottom + 4 })
+  }, [minWidth, preferredHeight, maxWidth])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (!triggerRef.current?.contains(target) && !floatingRef.current?.contains(target)) close()
+    }
+    // Scrolling inside the pop-up itself is ignored; anything else repositions it.
+    const follow = (event: Event) => {
+      if (event.target instanceof Node && floatingRef.current?.contains(event.target)) return
+      position()
+    }
+    document.addEventListener('mousedown', onPointer)
+    window.addEventListener('resize', follow)
+    window.addEventListener('scroll', follow, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('resize', follow)
+      window.removeEventListener('scroll', follow, true)
+    }
+  }, [open, close, position])
+
+  return { triggerRef, floatingRef, style, position }
+}
+
+const Chevron = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+
+type SelectOption = { value: string; label: string }
+
+function PulseSelect({ value, options, onChange, ariaLabel, placeholder, disabled, title }: {
+  value: string; options: SelectOption[]; onChange: (value: string) => void; ariaLabel: string
+  placeholder?: string; disabled?: boolean; title?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const closeList = useCallback(() => setOpen(false), [])
+  const { triggerRef, floatingRef, style, position } = useFloating(open, closeList, 180, 280)
+  const listId = useId()
+  const selectedIndex = options.findIndex((option) => option.value === value)
+  const showPlaceholder = selectedIndex < 0 && Boolean(placeholder)
+  const shownIndex = selectedIndex < 0 && !placeholder ? 0 : selectedIndex
+
+  function openList() {
+    if (disabled) return
+    position()
+    setActive(Math.max(0, selectedIndex))
+    setOpen(true)
+  }
+
+  function choose(index: number) {
+    onChange(options[index].value)
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  useEffect(() => {
+    if (open) floatingRef.current?.children[active]?.scrollIntoView({ block: 'nearest' })
+  }, [open, active, floatingRef])
+
+  function onKeyDown(event: React.KeyboardEvent) {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) { event.preventDefault(); openList() }
+      return
+    }
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(options.length - 1, index + 1)) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setActive((index) => Math.max(0, index - 1)) }
+    else if (event.key === 'Home') { event.preventDefault(); setActive(0) }
+    else if (event.key === 'End') { event.preventDefault(); setActive(options.length - 1) }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (options[active]) choose(active) }
+    else if (event.key === 'Escape' || event.key === 'Tab') setOpen(false)
+  }
+
+  return <div className="pulse-select">
+    <button ref={triggerRef} type="button" className={`pulse-select-trigger${open ? ' open' : ''}${showPlaceholder ? ' is-placeholder' : ''}`} disabled={disabled} title={title}
+      aria-haspopup="listbox" aria-expanded={open} aria-controls={listId} aria-label={ariaLabel}
+      aria-activedescendant={open ? `${listId}-${active}` : undefined} onClick={() => open ? setOpen(false) : openList()} onKeyDown={onKeyDown}>
+      <span>{showPlaceholder ? placeholder : options[shownIndex]?.label ?? ''}</span>
+      <Chevron />
+    </button>
+    {open && createPortal(<ul ref={(node) => { floatingRef.current = node }} id={listId} className="pulse-select-list" role="listbox" aria-label={ariaLabel} style={style}>
+      {options.length === 0 && <li className="empty-option" aria-disabled="true">No options available</li>}
+      {options.map((option, index) => <li key={option.value} id={`${listId}-${index}`} role="option" aria-selected={index === selectedIndex}
+        className={`${index === active ? 'active' : ''}${index === selectedIndex ? ' selected' : ''}`}
+        onMouseEnter={() => setActive(index)}
+        // preventDefault keeps a wrapping <label> from re-clicking the trigger.
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => { event.preventDefault(); choose(index) }}>{option.label}</li>)}
+    </ul>, document.body)}
+  </div>
+}
+
+// Calendar date picker; value/onChange use "YYYY-MM-DD" like <input type="date">.
+function PulseDatePicker({ value, onChange, ariaLabel, placeholder = 'Select date', allowClear }: { value: string; onChange: (value: string) => void; ariaLabel: string; placeholder?: string; allowClear?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const closeCalendar = useCallback(() => setOpen(false), [])
+  const { triggerRef, floatingRef, style, position } = useFloating(open, closeCalendar, 272, 340, 300)
+  const parse = (text: string) => { const m = text.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null }
+  const toValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const selected = parse(value)
+  const [month, setMonth] = useState(() => { const base = selected || new Date(); return new Date(base.getFullYear(), base.getMonth(), 1) })
+  const today = toValue(new Date())
+
+  function openCalendar() {
+    const base = selected || new Date()
+    setMonth(new Date(base.getFullYear(), base.getMonth(), 1))
+    position()
+    setOpen(true)
+  }
+
+  function pick(date: Date) {
+    onChange(toValue(date))
+    setOpen(false)
+    triggerRef.current?.focus()
+  }
+
+  // Six weeks starting on the Sunday on or before the 1st.
+  const first = new Date(month.getFullYear(), month.getMonth(), 1)
+  const days = Array.from({ length: 42 }, (_, i) => new Date(first.getFullYear(), first.getMonth(), i - first.getDay() + 1))
+  const label = selected ? selected.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : placeholder
+
+  return <div className="pulse-select">
+    <button ref={triggerRef} type="button" className={`pulse-select-trigger pulse-date-trigger${open ? ' open' : ''}${selected ? '' : ' is-placeholder'}`}
+      aria-haspopup="dialog" aria-expanded={open} aria-label={`${ariaLabel}: ${label}`} onClick={() => open ? setOpen(false) : openCalendar()}
+      onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }}>
+      <span>{label}</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+    </button>
+    {open && createPortal(<div ref={(node) => { floatingRef.current = node }} className="pulse-calendar" role="dialog" aria-label={ariaLabel} style={style}
+      onMouseDown={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() } }}>
+      <div className="pulse-calendar-head">
+        <button type="button" aria-label="Previous month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg></button>
+        <strong>{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</strong>
+        <button type="button" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg></button>
+      </div>
+      <div className="pulse-calendar-grid" role="grid">
+        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day} className="weekday" role="columnheader">{day}</span>)}
+        {days.map((day) => {
+          const key = toValue(day)
+          return <button type="button" key={key} role="gridcell"
+            className={`${day.getMonth() !== month.getMonth() ? 'outside' : ''}${key === value.slice(0, 10) ? ' selected' : ''}${key === today ? ' today' : ''}`}
+            aria-selected={key === value.slice(0, 10)} aria-label={day.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            onClick={(event) => { event.preventDefault(); pick(day) }}>{day.getDate()}</button>
+        })}
+      </div>
+      <div className="pulse-calendar-foot">
+        {allowClear && value && <button type="button" className="clear" onClick={(event) => { event.preventDefault(); onChange(''); setOpen(false); triggerRef.current?.focus() }}>Clear</button>}
+        <button type="button" onClick={(event) => { event.preventDefault(); pick(new Date()) }}>Today</button>
+      </div>
+    </div>, document.body)}
+  </div>
+}
+function DeleteButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button type="button" className="btn small row-delete" aria-label={label} title={label} onClick={onClick}>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
+  </button>
+}
+
+// Titled detail line inside a timeline row, e.g. "Action".
+function TimelineField({ title, text }: { title: string; text?: string }) {
+  if (!text?.trim()) return null
+  return <div className="tl-field"><span>{title}</span><p>{text}</p></div>
+}
+
+// Resolution status (Pending / In Progress / Resolved) filters, shared by Admin issues and Operations.
+const statusTone: Record<string, FilterOption['tone']> = { '778000000': 'warning', '778000002': 'gold', '778000001': 'success' }
+function statusFilters(statuses: string[]): FilterOption[] {
+  return [
+    { value: 'all', label: 'All', count: statuses.length, tone: 'all' },
+    ...resolutionOptions.map(([value, label]) => ({ value, label, count: statuses.filter((status) => String(status) === value).length, tone: statusTone[value] || 'gold' })),
+  ]
+}
+
+const patientLine = (name?: string, code?: string, area?: string) => name ? `${name}${code ? ` (${code})` : ''}${area ? ` · ${area}` : ''}` : ''
+
+function scrollToMissing(field: string) {
+  const item = field.match(missingItemPattern)?.[1]
+  const target = (item && document.querySelector(`[data-missing-item="${item}"]`)) || document.querySelector('.has-missing, .field.has-error')
+  target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 const outageFunctionalityOptions = serviceFunctionalityOptions.filter(([value]) => value !== '778000002')
 const compactLayoutStyles = `
   .home-modern, .dashboard.command-dashboard { margin-top: 8px; }
@@ -62,6 +479,8 @@ export function DutyManager() {
   const [reportFilter, setReportFilter] = useState('all')
   const [dutyManagerFilter, setDutyManagerFilter] = useState('all')
   const [reportPage, setReportPage] = useState(1)
+  const [reportDateFilter, setReportDateFilter] = useState('')
+  const [reportSort, setReportSort] = useState<ReportSort>({ key: 'date', dir: 'desc' })
   const [alerts, setAlerts] = useState<AlertRow[]>([])
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [eventTypes, setEventTypes] = useState<any[]>([])
@@ -72,15 +491,29 @@ export function DutyManager() {
   const [dashboard, setDashboard] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const clearMessage = useCallback(() => setMessage(''), [])
+  const [pdfOnOpen, setPdfOnOpen] = useState(false)
+  const [pulseOpen, setPulseOpen] = useState(false)
   const autosaveInFlight = useRef(false)
 
   const discharges = form.discharges
   const dutyManagerOptions = useMemo(() => Array.from(new Set(reports.map(displayName).filter((name) => name && name !== 'N/A'))).sort(), [reports])
-  const filteredReports = useMemo(() => reports.filter((report) => {
-    const matchesBusinessUnit = reportFilter === 'all' || String(report.dma_businessunit) === reportFilter
-    const matchesDutyManager = dutyManagerFilter === 'all' || displayName(report) === dutyManagerFilter
-    return matchesBusinessUnit && matchesDutyManager
-  }), [reports, reportFilter, dutyManagerFilter])
+  const filteredReports = useMemo(() => {
+    const rows = reports.filter((report) => {
+      const matchesBusinessUnit = reportFilter === 'all' || String(report.dma_businessunit) === reportFilter
+      const matchesDutyManager = dutyManagerFilter === 'all' || displayName(report) === dutyManagerFilter
+      const matchesDate = !reportDateFilter || localDateKey(report.dma_reportdate) === reportDateFilter
+      return matchesBusinessUnit && matchesDutyManager && matchesDate
+    })
+    const value = (report: any): string | number => {
+      if (reportSort.key === 'manager') return displayName(report).toLowerCase()
+      if (reportSort.key === 'state') return report.dma_dmacknowledgmenttimestamp ? 1 : 0
+      if (reportSort.key === 'submitted') return new Date(report.createdon || 0).getTime()
+      return new Date(report.dma_reportdate || report.createdon || 0).getTime()
+    }
+    const direction = reportSort.dir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => { const x = value(a), y = value(b); return x < y ? -direction : x > y ? direction : 0 })
+  }, [reports, reportFilter, dutyManagerFilter, reportDateFilter, reportSort])
   const pagedReports = useMemo(() => filteredReports.slice((reportPage - 1) * 5, reportPage * 5), [filteredReports, reportPage])
   const totalReportPages = Math.max(1, Math.ceil(filteredReports.length / 5))
   const pendingItems = useMemo(() => [...adminIssues.filter((x) => x.status !== '778000001'), ...opsIssues.filter((x) => x.statusId !== '778000001')], [adminIssues, opsIssues])
@@ -252,6 +685,13 @@ export function DutyManager() {
     const latestBuReport = latestReportForBusinessUnit(reports, businessUnit)
     const nextShift = latestBuReport ? nextShiftAfter(shiftFromValue(latestBuReport.dma_shifttype)) : baseForm.shift
     const nextForm = { ...baseForm, dmName: form.dmName, dmUserId: form.dmUserId, businessUnit, shift: nextShift }
+    // One draft per duty manager + business unit + shift + day: reopen it instead of creating a duplicate report.
+    const existing = getDrafts().find((draft) => sameHandover(draft, nextForm))
+    if (existing) {
+      setMessage(`You already have a draft for ${labelFor(businessUnits, businessUnit)} · ${nextShift} shift · ${shortDate(nextForm.reportDate)}. Opening it instead of creating a duplicate.`)
+      openDraft(existing)
+      return
+    }
     const nextDraftId = String(Date.now())
     setBusy(true)
     try {
@@ -314,7 +754,8 @@ export function DutyManager() {
     setView(nextView)
     if (nextView === 'home') loadHomeReports()
   }
-  function openDraft(draft: DraftRecord) {
+  // Opens a draft, optionally straight on a given report page (e.g. from a Current shift item).
+  function openDraft(draft: DraftRecord, startTab: TabKey = 'general') {
     setForm({ ...initialForm(), ...draft })
     setDraftId(draft.draftId)
     setReportId(draft.reportId || '')
@@ -326,7 +767,7 @@ export function DutyManager() {
     setDamaEntries(draft.damaEntries || [])
     setEarlyDischarges(draft.earlyDischarges || [])
     setView('report')
-    setTab('general')
+    setTab(startTab)
   }
 
   async function searchUsers(value: string) {
@@ -491,7 +932,7 @@ console.log('completion', saveFlow)
 
   async function deleteSectionRow(kind: 'event' | 'admin' | 'ops' | 'dama', row: EventItem | AdminIssue | OpsIssue | DamaEntry) {
     const labels = { event: 'hospital event', admin: 'administrative issue', ops: 'operations outage', dama: 'patient case' }
-    if (!window.confirm(`Delete this ${labels[kind]}? This action cannot be undone.`)) return
+    if (!await pulseConfirm(`Delete ${labels[kind]}`, `Delete this ${labels[kind]}? This action cannot be undone.`)) return
     try {
       if (row.dataverseId) {
         if (kind === 'event') await Services.events.delete(cleanId(row.dataverseId))
@@ -512,7 +953,7 @@ console.log('completion', saveFlow)
   async function deleteDraft(id: string) {
     const draft = getDrafts().find((item) => item.draftId === id)
     if (!draft) return
-    if (!window.confirm('Delete this draft and all of its linked records? This action cannot be undone.')) return
+    if (!await pulseConfirm('Delete draft', 'Delete this draft and all of its linked records? This action cannot be undone.', 'Delete draft')) return
     try {
       await Promise.all((draft.events || []).filter((row) => row.dataverseId).map((row) => Services.events.delete(cleanId(row.dataverseId))))
       await Promise.all((draft.adminIssues || []).filter((row) => row.dataverseId).map((row) => Services.adminEntries.delete(cleanId(row.dataverseId))))
@@ -532,6 +973,16 @@ console.log('completion', saveFlow)
   }
 
   async function submitReport() {
+    if (acknowledgmentPending(previous)) {
+      setMessage('The previous handover must be acknowledged before this report can be submitted.')
+      setTab('general')
+      return
+    }
+    const duplicate = drafts.find((d) => d.draftId !== draftId && sameHandover(d, form))
+    if (duplicate) {
+      setMessage(`Another draft already exists for this duty manager, business unit, shift and date (${formatDate(duplicate.reportDate)}). This report cannot be submitted until you delete one of them or change the shift or date.`)
+      return
+    }
     if (!completion.ok) {
       setMessage(`Please complete: ${completion.missing.join(', ')}`)
       return
@@ -637,20 +1088,25 @@ console.log('completion', saveFlow)
     }
   }
 
+  // Single acknowledgment path for every Acknowledge button (report viewer, General page, locked-page panel):
+  // saves to Dataverse, then updates everything showing that report so they agree immediately.
+  async function acknowledgeHandover(id: string) {
+    const timestamp = new Date().toISOString()
+    await acknowledgeHandoverReport(id, timestamp)
+    const same = (row: any) => cleanId(row?.dma_handoverreportid) === cleanId(id)
+    previous.markAcknowledged(id, timestamp)
+    setSelectedReport((current) => current && same(current.report) ? { ...current, report: { ...current.report, dma_dmacknowledgmenttimestamp: timestamp } } : current)
+    setReports((rows) => rows.map((row) => same(row) ? { ...row, dma_dmacknowledgmenttimestamp: timestamp } : row))
+    loadHomeReports().catch(() => undefined)
+  }
+
+  // Report viewer's Acknowledge: the viewer stays open and switches to "Acknowledged".
   async function acknowledgeReport() {
     const id = selectedReport?.report?.dma_handoverreportid
     if (!id) return
     try {
-      const api = getXrmWebApi()
-      const payload = { dma_dmacknowledgmenttimestamp: new Date().toISOString(), dma_reportstatus: 778000000, statecode: 0, statuscode: 1 } as any
-      if (api) {
-        await api.updateRecord('dma_handoverreport', cleanId(id), payload)
-      } else {
-        await Services.reports.update(cleanId(id), payload)
-      }
-      setSelectedReport(null)
+      await acknowledgeHandover(id)
       setMessage('Report acknowledged.')
-      await loadHomeReports()
     } catch {
       setMessage('Could not acknowledge the report.')
     }
@@ -661,6 +1117,14 @@ console.log('completion', saveFlow)
     localStorage.setItem('dma_read_alerts', JSON.stringify(Array.from(new Set([...stored, id]))))
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, isRead: true } : a))
     Services.alerts.update(cleanId(id), { dma_isread: true } as any).catch(() => undefined)
+  }
+
+  // Moves an alert from Done back to Open (e.g. marked done by mistake).
+  function markAlertUnread(id: string) {
+    const stored = JSON.parse(localStorage.getItem('dma_read_alerts') || '[]') as string[]
+    localStorage.setItem('dma_read_alerts', JSON.stringify(stored.filter((item) => item !== id)))
+    setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, isRead: false } : a))
+    Services.alerts.update(cleanId(id), { dma_isread: false } as any).catch(() => undefined)
   }
 
   const openModule = (nextTab: TabKey) => {
@@ -677,11 +1141,21 @@ console.log('completion', saveFlow)
   const homeDraft = view === 'home' ? drafts[0] : null
   const headerContext = homeDraft || form
   const headerCompletion = homeDraft ? draftCompletionPercent(homeDraft) : completionPercent
+  // Another saved draft with the same manager, business unit, shift and day as the one being edited.
+  const duplicateDraft = view === 'report' ? drafts.find((d) => d.draftId !== draftId && sameHandover(d, form)) : undefined
+  const previous = usePreviousHandover(view === 'report', form, reportId, acknowledgeHandover)
 
   return <div className="dm-app">
     <style>{compactLayoutStyles}</style>
     <nav className={`app-rail ${showReportNav ? 'report-open' : 'entry-only'}`} aria-label="Duty Manager primary navigation">
       <div className="dm-mark">DM</div>
+      {/* Wrapped in a div so the rail's button:nth-of-type rules (section label, entry-only) are unaffected. */}
+      <div className="pulse-apps-slot">
+        <button type="button" className="pulse-apps-btn" onClick={() => setPulseOpen(true)} aria-label="Pulse Apps" title="Pulse Apps" aria-expanded={pulseOpen}>
+          <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5-10 5L2 7l10-5z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" /></svg>
+          <span>Pulse Apps</span>
+        </button>
+      </div>
       <button className={view === 'home' ? 'active' : ''} onClick={() => leaveReport('home')} aria-label="Home / Shift Command" title="Home / Shift Command"><NavIcon name="home" /><span>Home</span></button>
       <button className={view === 'dashboard' ? 'active' : ''} onClick={() => showDashboard()} aria-label="Command Center" title="Command Center"><NavIcon name="dashboard" /><span>Dashboard</span></button>
       <button className={view === 'report' && tab === 'general' ? 'active' : ''} onClick={() => openModule('general')} aria-label="General / Shift Identity" title="General / Shift Identity"><NavIcon name="identity" /><span>General</span></button>
@@ -692,7 +1166,16 @@ console.log('completion', saveFlow)
       <button className={view === 'report' && tab === 'experience' ? 'active' : ''} onClick={() => openModule('experience')} aria-label="Experience" title="Experience"><NavIcon name="experience" /><span>Experience</span></button>
       <button className={view === 'report' && tab === 'summary' ? 'active' : ''} onClick={() => openModule('summary')} aria-label="Summary / Handover Review" title="Summary / Handover Review"><NavIcon name="summary" /><span>Summary</span></button>
     </nav>
-    <header className={`top ${isWorkflow ? 'workflow-top' : ''}`}>
+    {view === 'home' || view === 'dashboard' ? <AppHeader
+      crumb={view === 'home' ? 'Shift Command' : 'Situational awareness'}
+
+      context={view === 'home'
+        ? `${labelFor(businessUnits, headerContext.businessUnit)} · ${headerContext.shift} shift · ${shortDate(headerContext.reportDate)} · ${homeDraft ? 'Draft' : 'Completion'} ${headerCompletion}%`
+        : 'Group operations command center · all business units, shifts and duty managers'}
+      userName={headerContext.dmName || form.dmName || ''}
+      unread={alerts.filter((a) => !a.isRead).length}
+      openAlerts={() => setAlertsOpen(true)}
+    /> : <header className={`top ${isWorkflow ? 'workflow-top' : ''}`}>
       <button className="brand" onClick={() => leaveReport('home')}><span>DM</span><strong>Duty Manager</strong><small>Operations Handover</small></button>
       <div className="top-context">
         <span><small>Business unit</small><b>{labelFor(businessUnits, headerContext.businessUnit)}</b></span>
@@ -701,15 +1184,20 @@ console.log('completion', saveFlow)
         {!isWorkflow && <span><small>{homeDraft ? 'Draft completion' : 'Completion'}</small><b>{headerCompletion}%</b></span>}
       </div>
       {!isWorkflow && <button className="attention-chip" onClick={() => drafts[0] ? openDraft(drafts[0]) : setMessage('Start or continue a handover to review attention items.')}>{pendingItems.length || alerts.filter((a) => !a.isRead).length} items need attention</button>}
-      {!isWorkflow && <button className="alert-button" onClick={() => setAlertsOpen(true)}>Alerts <b>{alerts.filter((a) => !a.isRead).length}</b></button>}
-    </header>
-    {message && <div className="toast" onClick={() => setMessage('')}>{message}</div>}
-    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} dutyManagerFilter={dutyManagerFilter} dutyManagerOptions={dutyManagerOptions} setDutyManagerFilter={(value: string) => { setDutyManagerFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={deleteDraft} openReport={openReport} />}
+      {!isWorkflow && (() => {
+        const unread = alerts.filter((a) => !a.isRead).length
+        return <button className="alert-button" onClick={() => setAlertsOpen(true)} aria-label={`Alerts, ${unread} unread`}>Alerts <b className={unread ? 'has-unread' : 'is-zero'}>{unread}</b></button>
+      })()}
+    </header>}
+    <PulseNavigation client={pulseClient} variant="overlay" isOpen={pulseOpen} onClose={() => setPulseOpen(false)} powerAppId={DUTY_MANAGER_APP_ID} />
+    <ToastRack message={message} onClose={clearMessage} />
+    <ConfirmHost />
+    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} dutyManagerFilter={dutyManagerFilter} dutyManagerOptions={dutyManagerOptions} setDutyManagerFilter={(value: string) => { setDutyManagerFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} totalResults={filteredReports.length} dateFilter={reportDateFilter} setDateFilter={(value: string) => { setReportDateFilter(value); setReportPage(1) }} sort={reportSort} setSort={(sort: ReportSort) => { setReportSort(sort); setReportPage(1) }} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={deleteDraft} openReport={openReport} />}
     {view === 'dashboard' && <Dashboard data={dashboard} refresh={refreshDashboard} openReport={openReport} openIssue={(row: any) => { setView('report'); setTab(row.category === 'Administrative' ? 'admin' : 'ops') }} />}
-    {view === 'report' && <Editor state={{ form, updateForm, tab, setTab, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents: (next: EventItem[]) => { const removed = events.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('event', removed); else setEvents(next) }, adminIssues, setAdminIssues: (next: AdminIssue[]) => { const removed = adminIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('admin', removed); else setAdminIssues(next) }, opsIssues, setOpsIssues: (next: OpsIssue[]) => { const removed = opsIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('ops', removed); else setOpsIssues(next) }, damaEntries, setDamaEntries: (next: DamaEntry[]) => { const removed = damaEntries.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('dama', removed); else setDamaEntries(next) }, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport }} />}
-    {view === 'submitted' && <Submitted form={form} events={events} opsIssues={opsIssues} pendingItems={pendingItems} openReport={() => reportId && openReport(reportId)} goHome={() => setView('home')} />}
-    {alertsOpen && <AlertDrawer alerts={alerts} markAlertRead={markAlertRead} openReport={(id: string) => { openReport(id); setAlertsOpen(false) }} close={() => setAlertsOpen(false)} />}
-    {selectedReport && <ReportModal bundle={selectedReport} close={() => setSelectedReport(null)} acknowledge={acknowledgeReport} />}
+    {view === 'report' && <Editor state={{ form, updateForm, tab, setTab, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents: (next: EventItem[]) => { const removed = events.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('event', removed); else setEvents(next) }, adminIssues, setAdminIssues: (next: AdminIssue[]) => { const removed = adminIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('admin', removed); else setAdminIssues(next) }, opsIssues, setOpsIssues: (next: OpsIssue[]) => { const removed = opsIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('ops', removed); else setOpsIssues(next) }, damaEntries, setDamaEntries: (next: DamaEntry[]) => { const removed = damaEntries.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('dama', removed); else setDamaEntries(next) }, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport, duplicateDraft, openDraft, previous }} />}
+    {view === 'submitted' && <Submitted form={form} events={events} opsIssues={opsIssues} pendingItems={pendingItems} openReport={() => reportId && openReport(reportId)} downloadPdf={() => { if (!reportId) return; setPdfOnOpen(true); openReport(reportId) }} goHome={() => setView('home')} />}
+    {alertsOpen && <AlertDrawer alerts={alerts} markAlertRead={markAlertRead} markAlertUnread={markAlertUnread} openReport={(id: string) => { openReport(id); setAlertsOpen(false) }} close={() => setAlertsOpen(false)} />}
+    {selectedReport && <ReportModal bundle={selectedReport} close={() => setSelectedReport(null)} acknowledge={acknowledgeReport} autoDownload={pdfOnOpen} onAutoDownloaded={() => setPdfOnOpen(false)} />}
   </div>
 }
 
@@ -731,7 +1219,43 @@ function NavIcon({ name }: { name: NavIconName }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{icons[name]}</svg>
 }
 
-function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, dutyManagerFilter, dutyManagerOptions, setDutyManagerFilter, reportPage, totalReportPages, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport }: any) {
+// Shared page header for Home and Dashboard: one compact row. The breadcrumb doubles as the page title
+// (no separate bold heading), with the context line under it; action, alerts bell and user on the right.
+function AppHeader({ crumb, context, actions, userName, unread, openAlerts }: {
+  crumb: string; context: string; actions?: ReactNode
+  userName: string; unread: number; openAlerts: () => void
+}) {
+  const initials = userName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'DM'
+  return <header className="app-header">
+    <div className="app-header-title">
+      <nav className="home-breadcrumb" aria-label="Breadcrumb"><span>Home</span><span aria-hidden="true">/</span><h1>{crumb}</h1></nav>
+      <p>{context}</p>
+    </div>
+    <div className="app-header-user">
+      {actions}
+      <button type="button" className="home-bell" onClick={openAlerts} aria-label={`Alerts, ${unread} unread`} title="Alerts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+        {unread > 0 && <b>{unread > 99 ? '99+' : unread}</b>}
+      </button>
+      <div className="home-user">
+        <span className="home-avatar" aria-hidden="true">{initials}</span>
+        <span className="home-user-text"><strong>{userName || 'Loading user...'}</strong><small>Duty Manager</small></span>
+      </div>
+    </div>
+  </header>
+}
+// Clickable table header: first click sorts this column, the next click flips the direction.
+function SortHeader({ label, sortKey, sort, setSort }: { label: string; sortKey: ReportSort['key']; sort: ReportSort; setSort: (sort: ReportSort) => void }) {
+  const active = sort.key === sortKey
+  const next: ReportSort = { key: sortKey, dir: active && sort.dir === 'desc' ? 'asc' : 'desc' }
+  return <button type="button" className={`sort-header${active ? ' active' : ''}`} onClick={() => setSort(next)}
+    aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} title={`Sort by ${label.toLowerCase()}`}>
+    {label}
+    <svg viewBox="0 0 24 24" aria-hidden="true">{active && sort.dir === 'asc' ? <path d="m6 15 6-6 6 6" /> : active ? <path d="m6 9 6 6 6-6" /> : <><path d="m8 10 4-4 4 4" /><path d="m8 14 4 4 4-4" /></>}</svg>
+  </button>
+}
+
+function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, dutyManagerFilter, dutyManagerOptions, setDutyManagerFilter, reportPage, totalReportPages, totalResults, dateFilter, setDateFilter, sort, setSort, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport }: any) {
   const activeDraft = drafts[0]
   const currentManager = activeDraft?.dmName || form.dmName || 'Duty Manager'
   const greeting = timeGreeting()
@@ -747,11 +1271,10 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
   return <main className="home-modern">
     <section className="home-hero">
       <div>
-        <div className="eyebrow">Shift Command</div>
         <h1>{greeting}, {currentManager}.</h1>
         <p>{activeDraft ? `Active draft: ${activeDraftLabel}. ${attentionCount} items need attention before responsibility can transfer.` : 'No handover draft is currently in progress. Start a shift to begin a new Duty Manager handover.'}</p>
       </div>
-      <button className="btn hero-action" onClick={() => activeDraft ? openDraft(activeDraft) : startShift()}>{activeDraft ? 'Continue this draft' : 'Start handover'}</button>
+      <button type="button" className="btn primary hero-start" onClick={startShift}>+ Start new report</button>
     </section>
 
     <div className="home-section-head">
@@ -759,7 +1282,6 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
         <h2>Current shift</h2>
         <p>Priority exceptions and named ownership for this handover.</p>
       </div>
-      <button className="btn primary" onClick={() => activeDraft ? openDraft(activeDraft) : startShift()}>{activeDraft ? 'Continue report' : 'Start Shift'}</button>
     </div>
 
     <section className="home-current-grid">
@@ -770,13 +1292,11 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
             <p>{activeDraft.dmName || currentManager} - draft saved {formatDate(activeDraft.timestamp)} - draft completion {activeDraftCompletion}%</p>
             <p>{attentionCount} draft readiness items require ownership before handover.</p>
           </div>
-          <button className="btn" onClick={() => openDraft(activeDraft)}>Open</button>
         </article> : <article className="current-row lead">
           <div>
             <h3>No current draft selected</h3>
-            <p>Start a shift to create a real handover record with the existing Duty Manager data contract.</p>
+            <p>Use Start new report above to create a new handover record.</p>
           </div>
-          <button className="btn" onClick={startShift}>Start handover</button>
         </article>}
 
         {(pendingItems.length ? pendingItems.slice(0, 2) : completion.missing.slice(0, 2).map((label: string) => ({ label }))).map((item: any, index: number) => (
@@ -786,8 +1306,8 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
               <p>{item.catLabel ? 'Administrative issues' : item.affectedId ? 'Operations' : 'Handover readiness'} - owner: {currentManager}</p>
             </div>
             <span className={`status-token ${index === 0 ? 'warning' : 'critical'}`}>{index === 0 ? 'Action required' : 'Escalated'}</span>
-            <div className="current-metric"><strong>{item.statusId || item.status || 'Open'}</strong><small>Next update due</small></div>
-            <button className="btn" onClick={() => activeDraft && openDraft(activeDraft)}>Open report</button>
+            {/* Opens the draft on the page where this item is resolved. */}
+            {activeDraft && <button type="button" className="btn small current-open" onClick={() => openDraft(activeDraft, item.catLabel ? 'admin' : item.affectedId ? 'ops' : missingFieldTab(item.label || ''))}>Open</button>}
           </article>
         ))}
       </div>
@@ -806,11 +1326,11 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
 
     {drafts.length > 0 && <section className="draft-strip">
       <div className="eyebrow">Unfinished drafts</div>
-      {drafts.slice(0, 5).map((d: DraftRecord) => <div className="draft-row" key={d.draftId}>
-        <span>{labelFor(businessUnits, d.businessUnit)} - {d.shift || 'Morning'} - {formatDate(d.reportDate)} - {d.dmName || 'Duty Manager'}</span>
+      {drafts.slice(0, 5).map((d: DraftRecord, index: number) => <div className="draft-row" key={d.draftId}>
+        <span>{labelFor(businessUnits, d.businessUnit)} - {d.shift || 'Morning'} - {formatDate(d.reportDate)} - {d.dmName || 'Duty Manager'}{index === 0 && <em className="draft-current"> · Current draft</em>}</span>
         <div className="row-actions">
           <button className="btn danger small" onClick={() => deleteDraft(d.draftId)}>Delete</button>
-          <button className="btn primary small" onClick={() => openDraft(d)}>Continue</button>
+          <button className={`btn small${index === 0 ? ' primary' : ''}`} onClick={() => openDraft(d)}>Continue</button>
         </div>
       </div>)}
     </section>}
@@ -820,26 +1340,33 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
         <h2>Recent handovers</h2>
         <p>Submitted handovers available for operational review.</p>
       </div>
-      <div className="home-filter modern-filter" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(190px, 1fr))', alignItems: 'end', gap: 12, width: 'min(520px, 100%)' }}>
-        <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+      <div className="home-filter modern-filter recent-filters">
+        <div className="recent-filter">
+          <strong>Report date</strong>
+          <PulseDatePicker ariaLabel="Filter by report date" value={dateFilter} onChange={setDateFilter} placeholder="Any date" allowClear />
+        </div>
+        <div className="recent-filter">
           <strong>Business unit</strong>
-          <select style={{ width: '100%', minWidth: 0 }} value={reportFilter} onChange={(event) => setReportFilter(event.target.value)}>
-            <option value="all">All business units</option>
-            {businessUnits.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </label>
-        <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+          <PulseSelect ariaLabel="Filter by business unit" value={reportFilter} onChange={setReportFilter}
+            options={[{ value: 'all', label: 'All business units' }, ...businessUnits.map(([value, label]) => ({ value, label }))]} />
+        </div>
+        <div className="recent-filter">
           <strong>Duty manager</strong>
-          <select style={{ width: '100%', minWidth: 0 }} value={dutyManagerFilter} onChange={(event) => setDutyManagerFilter(event.target.value)}>
-            <option value="all">All duty managers</option>
-            {dutyManagerOptions.map((name: string) => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
+          <PulseSelect ariaLabel="Filter by duty manager" value={dutyManagerFilter} onChange={setDutyManagerFilter}
+            options={[{ value: 'all', label: 'All duty managers' }, ...dutyManagerOptions.map((name: string) => ({ value: name, label: name }))]} />
+        </div>
       </div>
     </div>
 
-    {reports.length === 0 ? <Empty title="No reports found." text="No handover reports were returned from Dataverse for this filter." /> : <section className="handover-ledger">
-      <div className="ledger-head"><span>Shift</span><span>Duty manager</span><span>Transfer state</span><span>Carry-over / exceptions</span><span>Submitted</span><span>Action</span></div>
+    {reports.length === 0 ? <Empty title="No reports found." text={dateFilter ? 'No handovers match this date. Clear the date filter to see more.' : 'No handover reports were returned from Dataverse for this filter.'} /> : <section className="handover-ledger">
+      <div className="ledger-head">
+        <SortHeader label="Shift" sortKey="date" sort={sort} setSort={setSort} />
+        <SortHeader label="Duty manager" sortKey="manager" sort={sort} setSort={setSort} />
+        <SortHeader label="Transfer state" sortKey="state" sort={sort} setSort={setSort} />
+        <span>Carry-over / exceptions</span>
+        <SortHeader label="Submitted" sortKey="submitted" sort={sort} setSort={setSort} />
+        <span>Action</span>
+      </div>
       {reports.map((r: any) => {
         const acknowledged = Boolean(r.dma_dmacknowledgmenttimestamp)
         return <div className="ledger-row" key={r.dma_handoverreportid}>
@@ -853,7 +1380,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
       })}
       <div className="pager">
         <button className="btn" disabled={reportPage <= 1} onClick={prevPage}>Previous</button>
-        <span>Page {reportPage}</span>
+        <span>Page {reportPage} of {totalReportPages} · {totalResults} result{totalResults === 1 ? '' : 's'}</span>
         <button className="btn" disabled={reportPage >= totalReportPages} onClick={nextPage}>Next</button>
       </div>
     </section>}
@@ -897,8 +1424,6 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState('')
   const [exportStatus, setExportStatus] = useState('')
-  const parsedDate = dateFilter ? new Date(dateFilter) : new Date()
-  const dateText = parsedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   const reportPool = data?.reports?.length ? data.reports : (data?.bus || []).map((b: any) => b.report).filter(Boolean)
   const dmOptions = Array.from(new Set(reportPool.map((report: any) => displayName(report)).filter((name: string) => name && name !== 'N/A'))).sort() as string[]
   const filteredReports = reportPool.filter((report: any) => {
@@ -934,7 +1459,6 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
   const queueLabel = queueFilter === 'incidents' ? 'Showing major incidents' : queueFilter === 'unresolved' ? 'Showing unresolved issues' : 'Showing all issues'
   const blockerCount = Math.max(filteredAging.length, visibleBus.reduce((sum: number, b: any) => sum + Number(b.report?.dma_pendingissues || 0), 0))
   const actionRequired = pendingBus.length + blockerCount
-  const unitsLabel = (buFilter === 'All' ? businessUnits.map(([, label]) => label) : [buFilter]).join(' - ')
   function exportDashboardReport() {
     const exportRows = filteredReports
       .filter((report: any) => buFilter === 'All' || labelFor(businessUnits, report.dma_businessunit) === buFilter)
@@ -1001,17 +1525,12 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
     else openIssue(row)
   }
   return <section className="dashboard command-dashboard">
-    <div className="command-head">
-      <div>
-        <div className="eyebrow">Group Operations Command Center</div>
-        <h1>Situational awareness</h1>
-        <p>{unitsLabel} - {shiftFilter} shift - {dateText}</p>
-      </div>
+    <div className="command-head no-title">
       <div className="command-controls">
-        <label><span>Date</span><input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} /></label>
-        <label><span>Shift</span><select value={shiftFilter} onChange={(e) => setShiftFilter(e.target.value)}><option>Morning</option><option>Evening</option><option>Night</option></select></label>
-        <label><span>Business units</span><select value={buFilter} onChange={(e) => setBuFilter(e.target.value)}><option>All</option>{businessUnits.map(([value, label]) => <option key={value}>{label}</option>)}</select></label>
-        <label><span>Duty manager</span><select value={dmFilter} onChange={(e) => setDmFilter(e.target.value)}><option>All</option>{dmOptions.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label><span>Date</span><PulseDatePicker ariaLabel="Date" value={dateFilter} onChange={setDateFilter} /></label>
+        <label><span>Shift</span><PulseSelect ariaLabel="Shift" value={shiftFilter} onChange={setShiftFilter} options={['Morning', 'Evening', 'Night'].map((shift) => ({ value: shift, label: shift }))} /></label>
+        <label><span>Business unit</span><PulseSelect ariaLabel="Business unit" value={buFilter} onChange={setBuFilter} options={[{ value: 'All', label: 'All' }, ...businessUnits.map(([, label]) => ({ value: label, label }))]} /></label>
+        <label><span>Duty manager</span><PulseSelect ariaLabel="Duty manager" value={dmFilter} onChange={setDmFilter} options={[{ value: 'All', label: 'All' }, ...dmOptions.map((name) => ({ value: name, label: name }))]} /></label>
         <span className="updated-pill">Updated {data?.updated || 'not yet'}</span>
         <button className="btn export-report" onClick={exportDashboardReport}>Export Excel</button>
         <button className="btn sync" onClick={syncDashboard} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync now'}</button>
@@ -1020,18 +1539,16 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
     {(syncError || exportStatus) && <div className={`dashboard-action-status ${syncError ? 'error' : ''}`}>{syncError || exportStatus}</div>}
 
     <section className="command-signal-grid">
-      <article className="signal-card dark">
+      <button type="button" className="signal-card dark is-clickable" onClick={() => showQueue('incidents')} aria-label={`System attention: ${majorCount} major incidents. View incidents`}>
         <small>System attention</small>
         <strong>{majorCount} major incidents</strong>
         <p>{majorCount ? 'Major event escalation active' : 'No major incidents'}</p>
-        <button onClick={() => showQueue('incidents')}>View incidents</button>
-      </article>
-      <article className="signal-card">
+      </button>
+      <button type="button" className="signal-card is-clickable" onClick={() => showQueue('unresolved')} aria-label={`Active blockers: ${blockerCount} unresolved issues. View unresolved issues`}>
         <small>Active blockers</small>
         <strong>{blockerCount} unresolved issues</strong>
         <p>{blockerCount ? `${blockerCount} issue${blockerCount === 1 ? '' : 's'} require ownership` : 'No active blockers require ownership'}</p>
-        <button onClick={() => showQueue('unresolved')}>View unresolved issues</button>
-      </article>
+      </button>
       <article className="signal-card soft">
         <small>Reporting</small>
         <strong>{submittedCount}/{expectedCount} submitted</strong>
@@ -1087,9 +1604,69 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
     </section>
   </section>
 }
-function AlertDrawer({ alerts, markAlertRead, openReport, close }: any) {
-  const unread = alerts.filter((a: AlertRow) => !a.isRead).length
-  return <div className="drawer-backdrop" onClick={close}><aside className="alert-drawer" onClick={(event) => event.stopPropagation()}><div className="alert-drawer-head"><div><span>Operations</span><h2>Duty Manager Alerts</h2><small>{unread} unread</small></div><button className="icon-close" onClick={close} aria-label="Close alerts">x</button></div>{alerts.length === 0 ? <Empty title="No alerts" text="Connected alert rows will appear here." /> : <div className="alert-drawer-list">{alerts.map((a: AlertRow) => <div className={`alert-item ${a.isRead ? 'read' : ''}`} key={a.id}><span className={`alert-dot ${a.severity}`}></span><div className="alert-copy"><strong className={`alert-title ${a.severity}`}>{a.title}</strong><p>{a.description}</p><small>{formatDate(a.createdOn)}</small><div className="alert-row-actions">{a.reportId && <button className="alert-cta" onClick={() => openReport(a.reportId)}>Open Report</button>}<button className="alert-done" onClick={() => markAlertRead(a.id)}>{a.isRead ? 'Done' : 'Mark done'}</button></div></div></div>)}</div>}</aside></div>
+// Alert descriptions arrive as one run-on string with embedded app links, e.g.
+// "Affected Service: Lab Outage Type: Partial ... https://apps.powerapps.com/...".
+// Drop the links and put each "Label: value" part on its own line.
+function alertLines(description?: string) {
+  const text = String(description || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+  if (!text) return []
+  // Scan left to right for known labels (a generic "Word Word:" rule would break "Lab Outage Type:" apart);
+  // the longest-first list makes "Fault Description" win over "Description".
+  const labelPattern = new RegExp(`(?:^|\\s)(${ALERT_LABELS.join('|')}):`, 'gi')
+  const hits = [...text.matchAll(labelPattern)]
+  const lines: { label: string; value: string }[] = []
+  const lead = text.slice(0, hits[0]?.index ?? text.length).trim()
+  if (lead) lines.push({ label: '', value: lead })
+  hits.forEach((hit, i) => {
+    const start = (hit.index ?? 0) + hit[0].length
+    const end = hits[i + 1]?.index ?? text.length
+    const value = text.slice(start, end).trim()
+    if (value) lines.push({ label: hit[1], value })
+  })
+  return lines
+}
+
+// Labels used in flow-generated alert descriptions (longest first so "Fault Description" wins over "Description").
+const ALERT_LABELS = [
+  'Service Functionality', 'Service Affected', 'Affected Service', 'Fault Description', 'Pending Details', 'Resolution Status',
+  'Unresolved for', 'Business Unit', 'Duty Manager', 'Outage Type', 'Issue Type', 'Event Type', 'Event Code', 'Created On',
+  'Reported By', 'Description', 'Category', 'Severity', 'Patient', 'Status', 'Report', 'Shift',
+]
+
+// Open / Done switch at the top of the drawer: done alerts live in their own view (with Reopen)
+// instead of staying greyed out in the same list or sitting at the bottom.
+function AlertDrawer({ alerts, markAlertRead, markAlertUnread, openReport, close }: any) {
+  const open = alerts.filter((a: AlertRow) => !a.isRead)
+  const done = alerts.filter((a: AlertRow) => a.isRead)
+  const [view, setView] = useState<'open' | 'done'>('open')
+  const item = (a: AlertRow) => <div className={`alert-item${a.isRead ? ' is-done' : ''}`} key={a.id}>
+    <span className={`alert-dot ${a.isRead ? 'done' : a.severity}`}></span>
+    <div className="alert-copy">
+      <strong className={`alert-title ${a.severity}`}>{a.title}</strong>
+      {alertLines(a.description).length > 0 && <dl className="alert-lines">{alertLines(a.description).map((line, index) => <div key={index}>{line.label && <dt>{line.label}</dt>}<dd>{line.value}</dd></div>)}</dl>}
+      <small>{formatDate(a.createdOn)}</small>
+      <div className="alert-row-actions">
+        {a.reportId && <button className="alert-cta" onClick={() => openReport(a.reportId)}>Open Report</button>}
+        {a.isRead
+          ? <button className="alert-reopen" onClick={() => markAlertUnread(a.id)}>Reopen</button>
+          : <button className="alert-done" onClick={() => markAlertRead(a.id)}>Mark done</button>}
+      </div>
+    </div>
+  </div>
+  return <div className="drawer-backdrop" onClick={close}><aside className="alert-drawer" onClick={(event) => event.stopPropagation()}>
+    <div className="alert-drawer-head"><div><span>Operations</span><h2>Duty Manager Alerts</h2><small>{open.length} open · {done.length} done</small></div><button className="icon-close" onClick={close} aria-label="Close alerts">x</button></div>
+    {alerts.length === 0 ? <Empty title="No alerts" text="Connected alert rows will appear here." /> : <>
+      <div className="alert-switch" role="tablist" aria-label="Alert status">
+        <button type="button" role="tab" aria-selected={view === 'open'} className={view === 'open' ? 'active' : ''} onClick={() => setView('open')}>Open <b>{open.length}</b></button>
+        <button type="button" role="tab" aria-selected={view === 'done'} className={view === 'done' ? 'active' : ''} onClick={() => setView('done')}>Done <b>{done.length}</b></button>
+      </div>
+      <div className="alert-drawer-list" role="tabpanel">
+        {view === 'open'
+          ? (open.length === 0 ? <div className="alert-all-clear">All caught up. There are no open alerts.</div> : open.map(item))
+          : (done.length === 0 ? <div className="alert-all-clear neutral">No alerts have been marked done yet.</div> : done.map(item))}
+      </div>
+    </>}
+  </aside></div>
 }
 function Editor({ state }: any) {
   const tabs: [TabKey, string][] = [
@@ -1102,68 +1679,40 @@ function Editor({ state }: any) {
     ['summary', 'Summary'],
   ]
   const active = state.tab
-  return <div className="editor-shell">
-    <nav className="nav-tabs">{tabs.map(([key, label]) => <button key={key} className={active === key ? 'active' : ''} onClick={() => state.setTab(key)}>{label}</button>)}</nav>
-    {active === 'general' && <GeneralTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} />}
-    {active === 'events' && <EventsTab businessUnit={state.form.businessUnit} events={state.events} setEvents={state.setEvents} eventTypes={state.eventTypes} eventCodes={state.eventCodes} loadEventCodes={state.loadEventCodes} />}
-    {active === 'admin' && <AdminTab form={state.form} updateForm={state.updateForm} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} adminCatalog={state.adminCatalog} />}
-    {active === 'flow' && <FlowTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} discharges={state.discharges} damaEntries={state.damaEntries} setDamaEntries={state.setDamaEntries} earlyDischarges={state.earlyDischarges} setEarlyDischarges={state.setEarlyDischarges} />}
-    {active === 'ops' && <OpsTab opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} />}
-    {active === 'experience' && <ExperienceTab form={state.form} updateForm={state.updateForm} />}
-    {active === 'summary' && <SummaryTab form={state.form} updateForm={state.updateForm} completion={state.completion} pendingItems={state.pendingItems} submitReport={state.submitReport} busy={state.busy} />}
-  </div>
+  const [showErrors, setShowErrors] = useState(false)
+  // Every page except General stays locked until the previous handover is acknowledged.
+  const ackPending = acknowledgmentPending(state.previous)
+  const locked = ackPending && active !== 'general'
+  const missing: string[] = state.completion.missing
+  const pageMissing = missing.filter((field) => missingFieldTab(field) === active)
+  const pageInfo = reportTabs.find(([, , key]) => key === active)
+  return <ValidationContext.Provider value={{ show: showErrors, missing }}><div className="editor-shell">
+    <nav className="nav-tabs">{tabs.map(([key, label]) => <button key={key} className={`${active === key ? 'active' : ''}${ackPending && key !== 'general' ? ' locked' : ''}`} title={ackPending && key !== 'general' ? 'Acknowledge the previous handover first' : undefined} onClick={() => state.setTab(key)}>{label}</button>)}</nav>
+    {showErrors && active !== 'summary' && pageMissing.length > 0 && <div className="page-missing-banner" role="alert">
+      <div>
+        <strong>{pageMissing.length} required {pageMissing.length === 1 ? 'field is' : 'fields are'} missing on this page{pageInfo ? ` (${pageInfo[1]})` : ''}</strong>
+        <div className="missing-chip-list">{pageMissing.map((field) => <button type="button" className="missing-chip" key={field} title="Show on page" onClick={() => scrollToMissing(field)}>{field}</button>)}</div>
+      </div>
+      <button type="button" className="btn small" onClick={() => state.setTab('summary')}>Back to Summary</button>
+    </div>}
+    {active === 'general' && <GeneralTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} duplicateDraft={state.duplicateDraft} openDraft={state.openDraft} previous={state.previous} />}
+    {state.previous.failed && <div className="page-missing-banner ack-check-failed" role="alert"><div><strong>Couldn't check the previous handover</strong><p>Acknowledgment of the previous shift could not be verified, so this report is not locked. Retry before submitting.</p></div><button type="button" className="btn small" onClick={state.previous.retry}>Retry</button></div>}
+    {locked && <AcknowledgeGate previous={state.previous} openReport={state.openReport} goGeneral={() => state.setTab('general')} />}
+    {!locked && active === 'events' && <EventsTab businessUnit={state.form.businessUnit} events={state.events} setEvents={state.setEvents} eventTypes={state.eventTypes} eventCodes={state.eventCodes} loadEventCodes={state.loadEventCodes} />}
+    {!locked && active === 'admin' && <AdminTab form={state.form} updateForm={state.updateForm} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} adminCatalog={state.adminCatalog} />}
+    {!locked && active === 'flow' && <FlowTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} discharges={state.discharges} damaEntries={state.damaEntries} setDamaEntries={state.setDamaEntries} earlyDischarges={state.earlyDischarges} setEarlyDischarges={state.setEarlyDischarges} />}
+    {!locked && active === 'ops' && <OpsTab opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} />}
+    {!locked && active === 'experience' && <ExperienceTab form={state.form} updateForm={state.updateForm} />}
+    {!locked && active === 'summary' && <SummaryTab form={state.form} updateForm={state.updateForm} completion={state.completion} pendingItems={state.pendingItems} submitReport={state.submitReport} busy={state.busy} setTab={state.setTab} showErrors={showErrors} onSubmitAttempt={() => setShowErrors(true)} />}
+  </div></ValidationContext.Provider>
 }
-function GeneralTab({ form, updateForm, reportId, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab }: any) {
-  const [previousReport, setPreviousReport] = useState<any>(null)
-  const [carryItems, setCarryItems] = useState<any[]>([])
-  const [previousLoading, setPreviousLoading] = useState(false)
-  const [previousMessage, setPreviousMessage] = useState('')
+function GeneralTab({ form, updateForm, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab, duplicateDraft, openDraft, previous }: any) {
+  // Previous same-BU handover state lives in DutyManager so every report page can require its acknowledgment.
+  const { report: previousReport, carryItems, loading: previousLoading, message: previousMessage, acknowledge: acknowledgePrevious } = previous as PreviousHandover
   const previousAcknowledged = Boolean(previousReport?.dma_dmacknowledgmenttimestamp)
   const [reportDatePart = '', reportTimePart = ''] = String(form.reportDate || '').split('T')
   function updateMobileReportDate(nextDate: string, nextTime: string) {
     updateForm({ reportDate: `${nextDate || reportDatePart}T${nextTime || reportTimePart || '00:00'}` })
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadPrevious() {
-      if (!form.businessUnit || !form.reportDate) return
-      setPreviousLoading(true)
-      setPreviousMessage('')
-      try {
-        const report = await retrievePreviousSameBuReport(form, reportId)
-        const carried = report?.dma_handoverreportid ? await retrieveCarryForwardItems(cleanId(report.dma_handoverreportid)) : []
-        if (!cancelled) {
-          setPreviousReport(report)
-          setCarryItems(carried)
-        }
-      } catch (error) {
-        console.warn('Previous handover lookup failed', error)
-        if (!cancelled) {
-          setPreviousReport(null)
-          setCarryItems([])
-          setPreviousMessage('Could not retrieve the previous handover.')
-        }
-      } finally {
-        if (!cancelled) setPreviousLoading(false)
-      }
-    }
-    loadPrevious()
-    return () => { cancelled = true }
-  }, [form.businessUnit, form.reportDate, reportId])
-
-  async function acknowledgePrevious() {
-    if (!previousReport?.dma_handoverreportid) return
-    setPreviousMessage('Acknowledging previous handover...')
-    try {
-      const timestamp = new Date().toISOString()
-      await acknowledgeHandoverReport(previousReport.dma_handoverreportid, timestamp)
-      setPreviousReport({ ...previousReport, dma_dmacknowledgmenttimestamp: timestamp })
-      setPreviousMessage('Previous handover acknowledged.')
-    } catch (error) {
-      console.warn('Previous handover acknowledgment failed', error)
-      setPreviousMessage('Could not acknowledge the previous handover.')
-    }
   }
 
   function carryForward(item: any) {
@@ -1207,14 +1756,20 @@ function GeneralTab({ form, updateForm, reportId, searchUsers, userMatches, setU
 
   return <main className="workflow-page general-page">
     <PageTitle step="01" eyebrow="Shift Identity" title="General" subtitle="Confirm the reporting context and accept responsibility for the incoming shift." />
+    {duplicateDraft && <div className="page-missing-banner duplicate-draft-banner" role="alert">
+      <div>
+        <strong>A draft for this handover already exists</strong>
+        <p>{labelFor(businessUnits, duplicateDraft.businessUnit)} · {duplicateDraft.shift} shift · {formatDate(duplicateDraft.reportDate)} · {duplicateDraft.dmName || 'Duty Manager'}. Change the business unit, shift or date, or continue the existing draft. This report can't be submitted while both exist.</p>
+      </div>
+      <button type="button" className="btn small" onClick={() => openDraft(duplicateDraft)}>Open existing draft</button>
+    </div>}
     <section className="identity-card">
       <div className="identity-card-head"><span>Shift identity</span></div>
       <div className="identity-fields">
-        <Field label="Duty Manager"><div className="lookup-wrap"><input value={form.dmName} onChange={(e) => searchUsers(e.target.value)} onBlur={() => setTimeout(() => setUserMatches([]), 150)} />{userMatches.length > 0 && <div className="lookup-results">{userMatches.map((u: any) => <button className="lookup-item" key={u.systemuserid} onClick={() => { updateForm({ dmName: u.fullname, dmUserId: u.systemuserid }); setUserMatches([]) }}>{u.fullname}</button>)}</div>}</div></Field>
-        <SelectField label="Business Unit" value={form.businessUnit} options={businessUnits} onChange={(businessUnit: string) => updateForm({ businessUnit })} />
-        <div className="desktop-report-date"><Field label="Report Date"><input type="datetime-local" value={form.reportDate} onChange={(e) => updateForm({ reportDate: e.target.value })} /></Field></div>
-        <div className="mobile-report-date"><Field label="Report Date"><input type="date" value={reportDatePart} onChange={(e) => updateMobileReportDate(e.target.value, reportTimePart)} /></Field><Field label="Report Time"><input type="time" value={reportTimePart.slice(0, 5)} onChange={(e) => updateMobileReportDate(reportDatePart, e.target.value)} /></Field></div>
-        <Field label="Shift"><select value={form.shift} onChange={(e) => updateForm({ shift: e.target.value as Shift })}><option>Morning</option><option>Evening</option><option>Night</option></select></Field>
+        <Field label="Duty Manager" required="Duty Manager"><div className="lookup-wrap"><input value={form.dmName} onChange={(e) => searchUsers(e.target.value)} onBlur={() => setTimeout(() => setUserMatches([]), 150)} />{userMatches.length > 0 && <div className="lookup-results">{userMatches.map((u: any) => <button className="lookup-item" key={u.systemuserid} onClick={() => { updateForm({ dmName: u.fullname, dmUserId: u.systemuserid }); setUserMatches([]) }}>{u.fullname}</button>)}</div>}</div></Field>
+        <SelectField label="Business Unit" required="Business Unit" value={form.businessUnit} options={businessUnits} onChange={(businessUnit: string) => updateForm({ businessUnit })} />
+        <div className="report-date-fields"><Field label="Report Date" required="Report Date"><PulseDatePicker ariaLabel="Report date" value={reportDatePart} onChange={(date) => updateMobileReportDate(date, reportTimePart)} /></Field><Field label="Report Time"><input type="time" value={reportTimePart.slice(0, 5)} onChange={(e) => updateMobileReportDate(reportDatePart, e.target.value)} /></Field></div>
+        <Field label="Shift" required="Shift"><PulseSelect ariaLabel="Shift" value={form.shift} onChange={(shift) => updateForm({ shift: shift as Shift })} options={['Morning', 'Evening', 'Night'].map((shift) => ({ value: shift, label: shift }))} /></Field>
       </div>
     </section>
     <div className="page-section-title"><h2>Incoming responsibility</h2><p>Context carried from the previous Duty Manager.</p></div>
@@ -1240,9 +1795,20 @@ function GeneralTab({ form, updateForm, reportId, searchUsers, userMatches, setU
 }
 
 function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, loadEventCodes }: any) {
+  const isMissing = useMissingItem()
   const [adding, setAdding] = useState(false)
-  const [validationError, setValidationError] = useState('')
   const [draft, setDraft] = useState<EventItem>({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
+  const validation = useSaveErrors((d: EventItem) => {
+    const e: Record<string, string> = {}
+    if (!d.typeId) e.typeId = 'Select the critical event type.'
+    if (!d.codeId) e.codeId = d.typeId ? 'Select the specific code.' : 'Select an event type first, then the code.'
+    if (!d.area) e.area = REQUIRED
+    if (!d.pId || !d.pName) e.patient = 'Search and select the patient.'
+    if (!d.desc.trim()) e.desc = 'Describe the incident.'
+    if (!d.actions.trim()) e.actions = 'Record the immediate actions taken.'
+    return e
+  }, draft)
+  const errors = validation.errors
   const areaOptions = eventAreaOptions(draft.typeText, businessUnit)
   const reset = () => setDraft({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
   useEffect(() => {
@@ -1251,7 +1817,7 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
       return allowed.some(([area]) => area === current.area) ? current : { ...current, area: allowed[0][0], pName: '', pCode: '', pId: '' }
     })
   }, [businessUnit])
-  const closeModal = () => { reset(); setValidationError(''); setAdding(false) }
+  const closeModal = () => { reset(); validation.reset(); setAdding(false) }
   function editEvent(item: EventItem) {
     setDraft({ ...item, pCode: item.pCode || '' })
     if (item.typeId) loadEventCodes(item.typeId)
@@ -1265,44 +1831,71 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
     if (typeId) loadEventCodes(typeId)
   }
   function save() {
-    const missing = [!draft.typeId && 'Critical Event Type', !draft.codeId && 'Specific Code', !draft.severity && 'Severity Level', !draft.area && 'Context (Area)', (!draft.pId || !draft.pName) && 'Patient Search', !draft.desc.trim() && 'Incident Description', !draft.actions.trim() && 'Immediate Actions Taken'].filter(Boolean)
-    if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
-    setValidationError('')
+    if (!validation.check()) return
     const item = { ...draft, id: draft.id || `event-${Date.now()}`, typeText: draft.typeText || 'Event', codeText: draft.codeText || 'Code', pCode: draft.pCode || '' }
     setEvents(draft.id ? events.map((event: EventItem) => event.id === draft.id ? item : event) : [...events, item])
     closeModal()
   }
+  const [severityFilter, setSeverityFilter] = useState('all')
   const major = events.filter((e: EventItem) => e.severity === '778000002').length
   const moderate = events.filter((e: EventItem) => e.severity === '778000001').length
   const low = Math.max(0, events.length - major - moderate)
+  const severityFilters: FilterOption[] = [
+    { value: 'all', label: 'All', count: events.length, tone: 'all' },
+    { value: '778000002', label: 'Major', count: major, tone: 'danger' },
+    { value: '778000001', label: 'Moderate', count: moderate, tone: 'warning' },
+    { value: '778000000', label: 'Low', count: low, tone: 'success' },
+  ]
+  const visibleEvents = severityFilter === 'all' ? events.length : events.filter((e: EventItem) => e.severity === severityFilter).length
   return <main className="workflow-page events-page">
     <PageTitle step="02" eyebrow="Clinical Situation Awareness" title="Hospital events" subtitle="Time-ordered clinical events, severity and accountable ownership." action={<button className="btn primary" onClick={() => setAdding(true)}>Log hospital event</button>} />
     {adding && <ModalShell title={draft.id ? 'Edit Hospital Event' : 'Add Hospital Event'} tone="event" onClose={closeModal}>
       <div className="grid report-grid two">
-        <Field label="Critical Event Type *"><select value={draft.typeId} onChange={(e) => changeType(e.target.value)}><option value="" disabled hidden>Select</option>{eventTypes.map((x: any) => <option key={x.dma_eventtypeid} value={x.dma_eventtypeid}>{x.dma_name}</option>)}</select></Field>
-        <Field label="Specific Code *"><select className="dependent-select" value={draft.codeId} disabled={!draft.typeId} title={!draft.typeId ? 'Select a Critical Event Type first' : 'Select the specific event code'} onChange={(e) => { const c = eventCodes.find((x: any) => x.dma_eventcodeid === e.target.value); setDraft({ ...draft, codeId: e.target.value, codeText: c?.dma_name || '' }) }}><option value="" disabled hidden>{draft.typeId ? 'Select' : 'Select event type first'}</option>{eventCodes.map((x: any) => <option key={x.dma_eventcodeid} value={x.dma_eventcodeid}>{x.dma_name}</option>)}</select></Field>
+        <Field label="Critical Event Type *" error={errors.typeId}><PulseSelect ariaLabel="Critical event type" placeholder="Select" value={draft.typeId} onChange={changeType} options={eventTypes.map((x: any) => ({ value: x.dma_eventtypeid, label: x.dma_name }))} /></Field>
+        <Field label="Specific Code *" error={errors.codeId}><PulseSelect ariaLabel="Specific code" placeholder={draft.typeId ? 'Select' : 'Select event type first'} disabled={!draft.typeId} title={!draft.typeId ? 'Select a Critical Event Type first' : 'Select the specific event code'} value={draft.codeId} onChange={(codeId) => { const c = eventCodes.find((x: any) => x.dma_eventcodeid === codeId); setDraft({ ...draft, codeId, codeText: c?.dma_name || '' }) }} options={eventCodes.map((x: any) => ({ value: x.dma_eventcodeid, label: x.dma_name }))} /></Field>
         <SeverityBubbles value={draft.severity} onChange={(severity: Severity) => setDraft({ ...draft, severity })} />
-        <Field label="Context (Area) *"><select value={draft.area || areaOptions[0][0]} onChange={(e) => setDraft({ ...draft, area: e.target.value as PatientArea, pName: '', pCode: '', pId: '' })}>{areaOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+        <Field label="Context (Area) *" error={errors.area}><PulseSelect ariaLabel="Context area" value={draft.area || areaOptions[0][0]} onChange={(area) => setDraft({ ...draft, area: area as PatientArea, pName: '', pCode: '', pId: '' })} options={areaOptions.map(([value, label]) => ({ value, label }))} /></Field>
       </div>
       <div className="grid report-grid two">
-        <PatientLookup key={draft.area || areaOptions[0][0]} area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} />
+        <PatientLookup key={draft.area || areaOptions[0][0]} area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} />
         <Field label="Patient Code"><input className="auto-filled-input" value={draft.pCode || ''} readOnly aria-readonly="true" tabIndex={-1} placeholder="Auto-filled from patient search" /></Field>
       </div>
-      <Field label="Incident Description *"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} placeholder="Details of the event..." /></Field>
-      <Field label="Immediate Actions Taken *"><textarea value={draft.actions} onChange={(e) => setDraft({ ...draft, actions: e.target.value })} placeholder="Steps taken to mitigate issue..." /></Field>
-      {validationError && <div className="modal-validation" role="alert">{validationError}</div>}
+      <Field label="Incident Description *" error={errors.desc}><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} placeholder="Details of the event..." /></Field>
+      <Field label="Immediate Actions Taken *" error={errors.actions}><TextArea value={draft.actions} onChange={(e) => setDraft({ ...draft, actions: e.target.value })} placeholder="Steps taken to mitigate issue..." /></Field>
       <div className="modal-actions"><button className="btn" onClick={closeModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Event' : 'Add Event'}</button></div>
     </ModalShell>}
-    <section className="event-summary-strip"><div><small>Shift event register</small><b>{events.length}<span>events this shift</span></b></div><div><small>Severity distribution</small><p><i className="dot red" />Major {major}<i className="dot amber" />Moderate {moderate}<i className="dot green" />Low {low}</p></div><div><small>Operational state</small><b>{events.length}<span>active events</span></b></div></section>
+    <section className="event-summary-strip two-cells"><div><small>Shift event register</small><b>{events.length}<span>events this shift</span></b></div><div><small>Operational state</small><b>{events.length}<span>active events</span></b></div></section>
     <div className="page-section-title"><h2>Clinical event timeline</h2><p>Chronological event record for this shift.</p></div>
-    <section className="event-timeline">{events.length === 0 ? <Empty title="No hospital events recorded" text="Clinical events logged during this shift will appear in the timeline." /> : events.map((e: EventItem, index: number) => <article className="timeline-row" key={e.id}><time>{shortTime(new Date().toISOString()) || `0${index}:00`}</time><span className={`timeline-dot ${severityClass(e.severity)}`} /><div><small>{labelFor(severityOptions, e.severity)}</small><h3>{e.typeText} - {e.codeText}</h3><p>{e.pName ? `${e.pName}${e.pCode ? ` (${e.pCode})` : ''} - ${e.area} - ` : ''}{e.desc}</p></div><div className="timeline-owner"><b>{e.actions || 'Duty Manager follow-up'}</b><span>{e.actions ? 'Action logged' : 'Active monitoring'}</span></div><div className="row-actions compact"><button className="btn small" onClick={() => editEvent(e)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete event" title="Delete" onClick={() => setEvents(events.filter((x: EventItem) => x.id !== e.id))}>x</button></div></article>)}</section>
+    {events.length > 0 && <TimelineFilters label="Filter events by severity" options={severityFilters} value={severityFilter} onChange={setSeverityFilter} />}
+    <section className="event-timeline">{events.length === 0 ? <Empty title="No hospital events recorded" text="Clinical events logged during this shift will appear in the timeline." /> : visibleEvents === 0 ? <Empty title="No events at this severity" text="Choose another filter to see the rest of the timeline." /> : events.map((e: EventItem, index: number) => (severityFilter === 'all' || e.severity === severityFilter) && <article className={`timeline-row pulse-row${isMissing(`Event ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Event ${index + 1}`} key={e.id}>
+      <time>{shortTime(new Date().toISOString()) || `0${index}:00`}</time>
+      <span className={`timeline-dot ${severityClass(e.severity)}`} title={labelFor(severityOptions, e.severity)} />
+      <div className="tl-body">
+        <h3 className="tl-title">{patientLine(e.pName, e.pCode, e.area) || `${e.typeText} - ${e.codeText}`}</h3>
+        {e.pName && <div className="tl-sub">{e.typeText} - {e.codeText}</div>}
+        <p className="tl-desc">{e.desc}</p>
+        <TimelineField title="Action" text={e.actions} />
+      </div>
+      <div className="row-actions compact"><button className="btn small" onClick={() => editEvent(e)}>Update</button><DeleteButton label="Delete event" onClick={() => setEvents(events.filter((x: EventItem) => x.id !== e.id))} /></div>
+    </article>)}</section>
   </main>
 }
 function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog }: any) {
+  const isMissing = useMissingItem()
   const adminAreas = patientAreaOptions(form.businessUnit)
   const [draft, setDraft] = useState<AdminIssue>({ id: '', catId: '', catLabel: '', status: '778000000', desc: '', action: '', pendingDetails: '', area: adminAreas[0][0], pName: '', pCode: '', pId: '' })
   const [adding, setAdding] = useState(false)
-  const [validationError, setValidationError] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const validation = useSaveErrors((d: AdminIssue) => {
+    const e: Record<string, string> = {}
+    if (!d.catId) e.catId = 'Select the issue category.'
+    if (!d.status) e.status = REQUIRED
+    if (!d.area) e.area = REQUIRED
+    if (!d.pId || !d.pName) e.patient = 'Search and select the patient.'
+    if (d.status !== '778000001' && !d.pendingDetails.trim()) e.pendingDetails = 'Add a summary or the pending action plan.'
+    return e
+  }, draft)
+  const errors = validation.errors
   const delayed = form.delayedDischargesCount
   const prolonged = form.prolongedERAdmissionsCount
   useEffect(() => {
@@ -1310,10 +1903,9 @@ function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog 
   }, [form.businessUnit])
   function resetAdminDraft() { setDraft({ id: '', catId: '', catLabel: '', status: '778000000', desc: '', action: '', pendingDetails: '', area: adminAreas[0][0], pName: '', pCode: '', pId: '' }) }
   function editAdminIssue(issue: AdminIssue) { setDraft({ ...issue }); setAdding(true) }
-  function closeAdminModal() { resetAdminDraft(); setAdding(false) }
+  function closeAdminModal() { resetAdminDraft(); validation.reset(); setAdding(false) }
   function save() {
-    const missing = [!draft.catId && 'Issue Category', !draft.status && 'Resolution Status', !draft.area && 'Patient Area', (!draft.pId || !draft.pName) && 'Patient Search', draft.status !== '778000001' && !draft.pendingDetails.trim() && 'Summary / Pending Details'].filter(Boolean)
-    if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
+    if (!validation.check()) return
     const catLabel = labelFor(adminCatalog, draft.catId)
     const item = { ...draft, id: draft.id || `admin-${Date.now()}`, catLabel }
     setAdminIssues(draft.id ? adminIssues.map((issue: AdminIssue) => issue.id === draft.id ? item : issue) : [...adminIssues, item])
@@ -1321,16 +1913,21 @@ function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog 
   }
   return <main className="workflow-page admin-page"><PageTitle step="03" eyebrow="Operational Constraints" title="Administrative issues" subtitle="Delayed discharges, prolonged ER admissions and issue ownership." action={<button className="btn primary" onClick={() => setAdding(true)}>Log administrative issue</button>} />
     <section className="admin-metrics"><div><small>Current load</small><b>{adminIssues.length}<span>Open issues</span></b><p>active this shift</p></div><div><small>Operational pressure</small><div className="metric-cluster"><b>{delayed}<span>Delayed discharges</span></b><b>{prolonged}<span>Prolonged ER</span></b><b>{Math.max(0, adminIssues.length - delayed - prolonged)}<span>Other blockers</span></b></div></div><div><small>Duty Manager attention</small><b>{adminIssues.filter((i: AdminIssue) => i.status !== '778000001').length} actions due</b><p>Requires intervention before handover</p></div></section>
-    <div className="inline-edit-fields"><Field label="Delayed discharge narrative"><textarea value={form.delayedDischargesNarrative} onChange={(e) => updateForm({ delayedDischargesNarrative: e.target.value })} /></Field><Field label="Prolonged ER narrative"><textarea value={form.prolongedERNarrative} onChange={(e) => updateForm({ prolongedERNarrative: e.target.value })} /></Field></div>
-    {adding && validationError && <div className="app-validation-toast" role="alert">{validationError}</div>}
-    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" value={draft.catId} options={adminCatalog} placeholder="Select" onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /><SelectField label="Patient Area *" value={draft.area || adminAreas[0][0]} options={adminAreas} onChange={(area: PatientArea) => setDraft({ ...draft, area, pName: '', pCode: '', pId: '' })} /><PatientLookup key={draft.area || adminAreas[0][0]} area={(draft.area || adminAreas[0][0]) as PatientArea} label="Patient Search *" value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} /></div><Field label="Description"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><textarea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" disabled={!draft.catId} onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
+    <div className="inline-edit-fields"><Field label="Delayed discharge narrative"><TextArea value={form.delayedDischargesNarrative} onChange={(e) => updateForm({ delayedDischargesNarrative: e.target.value })} /></Field><Field label="Prolonged ER narrative"><TextArea value={form.prolongedERNarrative} onChange={(e) => updateForm({ prolongedERNarrative: e.target.value })} /></Field></div>
+    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" error={errors.catId} value={draft.catId} options={adminCatalog} placeholder="Select" onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" error={errors.status} value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /><SelectField label="Patient Area *" error={errors.area} value={draft.area || adminAreas[0][0]} options={adminAreas} onChange={(area: PatientArea) => setDraft({ ...draft, area, pName: '', pCode: '', pId: '' })} /><PatientLookup key={draft.area || adminAreas[0][0]} area={(draft.area || adminAreas[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} /></div><Field label="Description"><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><TextArea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *" error={errors.pendingDetails}><TextArea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
     <div className="movement-head admin-timeline-head"><div><h2>Administrative issue timeline</h2></div><p>Current-shift constraints, ownership and follow-up.</p></div>
-    <section className="event-timeline admin-timeline">{adminIssues.length === 0 ? <Empty title="No administrative issues recorded" text="Administrative constraints logged during this shift will appear here." /> : adminIssues.map((i: AdminIssue, index: number) => <article className="timeline-row admin-timeline-row" key={i.id}>
+    {adminIssues.length > 0 && <TimelineFilters label="Filter administrative issues by status" options={statusFilters(adminIssues.map((i: AdminIssue) => i.status))} value={statusFilter} onChange={setStatusFilter} />}
+    <section className="event-timeline admin-timeline">{adminIssues.length === 0 ? <Empty title="No administrative issues recorded" text="Administrative constraints logged during this shift will appear here." /> : !adminIssues.some((i: AdminIssue) => statusFilter === 'all' || String(i.status) === statusFilter) ? <Empty title="No issues with this status" text="Choose another filter to see the rest of the timeline." /> : adminIssues.map((i: AdminIssue, index: number) => (statusFilter === 'all' || String(i.status) === statusFilter) && <article className={`timeline-row admin-timeline-row pulse-row${isMissing(`Admin Issue ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Admin Issue ${index + 1}`} key={i.id}>
       <time>{String(index + 1).padStart(2, '0')}</time>
-      <span className={`timeline-dot ${i.status === '778000001' ? 'low' : 'warning'}`} />
-      <div><small>{labelFor(resolutionOptions, i.status)}</small><h3>{i.catLabel}</h3><p>{i.pName ? `${i.pName}${i.pCode ? ` (${i.pCode})` : ''} - ${i.area} - ` : ''}{i.desc || 'No description entered.'}</p></div>
-      <div className="timeline-owner"><b>{i.pendingDetails || i.action || (i.status === '778000001' ? 'Resolved' : 'Duty Manager follow-up')}</b><span>{i.status === '778000001' ? 'Resolution completed' : 'Duty Manager ownership'}</span></div>
-      <div className="row-actions compact"><button className="btn small" onClick={() => editAdminIssue(i)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete administrative issue" title="Delete" onClick={() => setAdminIssues(adminIssues.filter((x: AdminIssue) => x.id !== i.id))}>x</button></div>
+      <span className={`timeline-dot ${i.status === '778000001' ? 'low' : 'warning'}`} title={labelFor(resolutionOptions, i.status)} />
+      <div className="tl-body">
+        <h3 className="tl-title">{patientLine(i.pName, i.pCode, i.area) || i.catLabel}</h3>
+        {i.pName && <div className="tl-sub">{i.catLabel}</div>}
+        <p className="tl-desc">{i.desc || 'No description entered.'}</p>
+        <TimelineField title="Action" text={i.action} />
+        {i.status !== '778000001' && <TimelineField title="Pending details" text={i.pendingDetails} />}
+      </div>
+      <div className="row-actions compact"><button className="btn small" onClick={() => editAdminIssue(i)}>Update</button><DeleteButton label="Delete administrative issue" onClick={() => setAdminIssues(adminIssues.filter((x: AdminIssue) => x.id !== i.id))} /></div>
     </article>)}</section>
   </main>
 }
@@ -1344,6 +1941,9 @@ function damaSummaryFromEntries(entries: DamaEntry[]): Partial<FormState> {
 }
 
 function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaEntries, earlyDischarges, setEarlyDischarges }: any) {
+  const isMissing = useMissingItem()
+  const validation = useContext(ValidationContext)
+  const staffMissing = validation.show && ['Staff Coverage', 'Coverage Shortage', 'Shortfall Summary'].some((field) => validation.missing.includes(field))
   const [entry, setEntry] = useState<DamaEntry>({ id: '', damaType: 'ER', patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false })
   const [editingFlow, setEditingFlow] = useState(false)
   const [retentionType, setRetentionType] = useState<DamaEntry['damaType'] | null>(null)
@@ -1415,7 +2015,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     }
   }
   async function deleteEarlyDischarge(row: EarlyDischarge) {
-    if (!window.confirm(`Remove ${row.name || 'this patient'} from tomorrow's discharge plan? This action cannot be undone.`)) return
+    if (!await pulseConfirm('Remove patient', `Remove ${row.name || 'this patient'} from tomorrow's discharge plan? This action cannot be undone.`, 'Remove')) return
     const rows = earlyDischarges.filter((item: EarlyDischarge) => item.id !== row.id)
     setEarlyRows(rows)
     if (!row.id.startsWith('local-')) {
@@ -1469,7 +2069,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
   return <main className="workflow-page flow-page">
     <PageTitle step="04" eyebrow="Patient Flow" title="Patient flow" subtitle="Live census, movement, theatre flow and retention signals for the current shift." action={<div className="flow-title-actions"><button className="btn" onClick={() => refreshAutoCounts()} disabled={refreshingFlow}>{refreshingFlow ? 'Refreshing...' : 'Refresh counts'}</button><button className="btn primary" onClick={() => setEditingFlow(true)}>Update patient flow</button></div>} />
     <section className="flow-status-strip">
-      <div className="flow-status-cell">
+      <div className={`flow-status-cell${staffMissing ? ' has-missing' : ''}`} data-missing-item="Staff">
         <small>Flow status</small>
         <b>{flowStatus}</b>
         <p>{form.staffAdequacy === '778000000' ? form.shortfallSummary || 'Staff coverage requires attention' : 'No current pressure'}</p>
@@ -1531,9 +2131,9 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
           <span>Log only when required</span>
         </div>
         <div className="retention-summary-grid">
-          {damaCounts.map((item) => <div className="retention-summary-item" key={item.type}><strong>{item.label}</strong><div><span><b>{item.cases}</b> cases</span><span><b>{item.retained}</b> retained</span></div><button className="btn small" onClick={() => { setEntry({ id: '', damaType: item.type, patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false }); setRetentionType(item.type) }}>Add case</button></div>)}
+          {damaCounts.map((item) => <div className={`retention-summary-item${damaEntries.some((row: DamaEntry, index: number) => row.damaType === item.type && isMissing(`DAMA Entry ${index + 1}`)) ? ' has-missing' : ''}`} key={item.type}><strong>{item.label}</strong><div><span><b>{item.cases}</b> cases</span><span><b>{item.retained}</b> retained</span></div><button className="btn small" onClick={() => { setEntry({ id: '', damaType: item.type, patientName: '', patientCode: '', reason: '', actionTaken: '', retained: false }); setRetentionType(item.type) }}>Add case</button></div>)}
         </div>
-        {damaEntries.length > 0 && <div className="retention-table retention-case-register"><div className="retention-head"><span>Patient</span><span>Area</span><span>Status</span><span>Action</span></div>{damaEntries.map((row: DamaEntry) => <div className="retention-row" key={row.id}><strong>{row.patientName || row.patientCode}</strong><span>{row.damaType === 'INP' ? 'Inpatient' : row.damaType}</span><b>{row.retained ? 'Retained' : 'Case'}</b><button className="btn small" onClick={() => { setEntry({ ...row }); setRetentionType(row.damaType) }}>Edit</button></div>)}</div>}
+        {damaEntries.length > 0 && <div className="retention-table retention-case-register"><div className="retention-head"><span>Patient</span><span>Area</span><span>Status</span><span>Action</span></div>{damaEntries.map((row: DamaEntry, index: number) => <div className={`retention-row${isMissing(`DAMA Entry ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`DAMA Entry ${index + 1}`} key={row.id}><strong>{row.patientName || row.patientCode}</strong><span>{row.damaType === 'INP' ? 'Inpatient' : row.damaType}</span><b>{row.retained ? 'Retained' : 'Case'}</b><button className="btn small" onClick={() => { setEntry({ ...row }); setRetentionType(row.damaType) }}>Edit</button></div>)}</div>}
         <p>Retained patients require active ownership before handover.</p>
         </section>
         {form.shift === 'Night' && <NightUtilizationCard form={form} />}
@@ -1546,7 +2146,13 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
 }
 
 function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
-  const [validationError, setValidationError] = useState('')
+  const validation = useSaveErrors((f: FormState) => {
+    const e: Record<string, string> = {}
+    if (f.staffAdequacy === '778000000' && !(f.shortageTypes || []).length) e.shortage = 'Select at least one shortage type.'
+    if (f.staffAdequacy === '778000000' && !String(f.shortfallSummary || '').trim()) e.shortfall = 'Describe the impact of the staff shortage.'
+    return e
+  }, form)
+  const errors = validation.errors
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -1559,10 +2165,7 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
   }
 
   function saveFlowContext() {
-    if (form.staffAdequacy === '778000000') {
-      const missing = [!(form.shortageTypes || []).length && 'Coverage Shortage', !String(form.shortfallSummary || '').trim() && 'Shortfall Summary'].filter(Boolean)
-      if (missing.length) { setValidationError(`Complete the required fields: ${missing.join(', ')}.`); return }
-    }
+    if (!validation.check()) return
     close()
   }
 
@@ -1575,11 +2178,11 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
       <div className="flow-popup-body">
       <div className="flow-popup-section">Staff coverage</div>
       <div className="flow-popup-grid single">
-        <label className="flow-popup-field"><span>Staff coverage</span><select value={form.staffAdequacy} onChange={(e) => updateForm({ staffAdequacy: e.target.value })}>{staffOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="flow-popup-field"><span>Staff coverage</span><PulseSelect ariaLabel="Staff coverage" value={form.staffAdequacy} onChange={(staffAdequacy) => updateForm({ staffAdequacy })} options={staffOptions.map(([value, label]) => ({ value, label }))} /></label>
       </div>
       {form.staffAdequacy === '778000000' && <div className="flow-shortage-panel">
-        <div className="flow-popup-field"><span>Coverage shortage *</span><div className="bubble-row">{shortageOptions.map(([value, label]) => <button type="button" key={value} className={`shortage-bubble ${form.shortageTypes?.includes(value) ? 'active' : ''}`} onClick={() => toggleShortage(value)}>{label}</button>)}</div></div>
-        <label className="flow-popup-field"><span>Shortfall summary *</span><textarea value={form.shortfallSummary} onChange={(e) => updateForm({ shortfallSummary: e.target.value })} placeholder="Describe the impact of the staff shortage..." /></label>
+        <div className={`flow-popup-field${errors.shortage ? ' has-error' : ''}`}><span>Coverage shortage <span className="req-mark" aria-hidden="true">*</span></span><div className="bubble-row">{shortageOptions.map(([value, label]) => <button type="button" key={value} className={`shortage-bubble ${form.shortageTypes?.includes(value) ? 'active' : ''}`} onClick={() => toggleShortage(value)}>{label}</button>)}</div><FieldError message={errors.shortage} /></div>
+        <label className={`flow-popup-field${errors.shortfall ? ' has-error' : ''}`}><span>Shortfall summary <span className="req-mark" aria-hidden="true">*</span></span><TextArea error={errors.shortfall} value={form.shortfallSummary} onChange={(e) => updateForm({ shortfallSummary: e.target.value })} placeholder="Describe the impact of the staff shortage..." /></label>
       </div>}
       <div className="flow-popup-section">Inbound</div>
       <div className="flow-popup-grid">
@@ -1614,7 +2217,6 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
         </div>
       </>}
       </div>
-      {validationError && <div className="flow-popup-validation" role="alert">{validationError}</div>}
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
         <button className="btn primary" onClick={saveFlowContext}>Save context</button>
@@ -1629,7 +2231,14 @@ function FlowNumber({ label, value, readOnly, onChange }: { label: string; value
 
 function RetentionPatientModal({ businessUnit, type, entry, setEntry, saveEntry, close }: any) {
   const area: PatientArea = type === 'ER' ? 'ER' : isKsaBusinessUnit(businessUnit) ? 'IPD_KSA' : 'IPD'
-  const label = type === 'INP' ? 'inpatient' : String(type).toLowerCase()
+  const label = type === 'INP' ? 'inpatient' : type === 'ER' ? 'the ER' : 'closed cases'
+  const validation = useSaveErrors((d: DamaEntry) => {
+    const e: Record<string, string> = {}
+    if (!d.pId || !d.patientName) e.patient = 'Search and select the patient.'
+    if (!(d.damaType === type && d.reason.trim())) e.reason = 'Add the reason, context or retention notes.'
+    return e
+  }, entry)
+  const errors = validation.errors
   return <div className="modal flow-popup-backdrop" role="dialog" aria-modal="true">
     <div className="flow-popup retention-popup">
       <div className="flow-popup-head">
@@ -1637,30 +2246,33 @@ function RetentionPatientModal({ businessUnit, type, entry, setEntry, saveEntry,
         <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
       <div className="flow-popup-stack">
-        <PatientLookup key={area} area={area} label="Patient / MRN" value={entry.damaType === type && entry.area === area ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pId: p.id })} />
-        <Field label="Retained"><select value={entry.retained ? 'Yes' : 'No'} onChange={(e) => setEntry({ ...entry, damaType: type, retained: e.target.value === 'Yes' })}><option value="No">No - case only</option><option value="Yes">Yes - retained</option></select></Field>
-        <Field label="Case notes"><textarea value={entry.damaType === type ? entry.reason : ''} onChange={(e) => setEntry({ ...entry, damaType: type, reason: e.target.value })} placeholder="Reason, context or retention notes..." /></Field>
+        <PatientLookup key={area} area={area} label="Patient / MRN *" error={errors.patient} value={entry.damaType === type && entry.area === area ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pId: p.id })} />
+        <Field label="Retained"><PulseSelect ariaLabel="Retained" value={entry.retained ? 'Yes' : 'No'} onChange={(choice) => setEntry({ ...entry, damaType: type, retained: choice === 'Yes' })} options={[{ value: 'No', label: 'No - case only' }, { value: 'Yes', label: 'Yes - retained' }]} /></Field>
+        <Field label="Case notes *" error={errors.reason}><TextArea value={entry.damaType === type ? entry.reason : ''} onChange={(e) => setEntry({ ...entry, damaType: type, reason: e.target.value })} placeholder="Reason, context or retention notes..." /></Field>
       </div>
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" disabled={!entry.pId || !entry.patientName} onClick={saveEntry}>{entry.id ? 'Save changes' : 'Save patient'}</button>
+        <button className="btn primary" onClick={() => { if (validation.check()) saveEntry() }}>{entry.id ? 'Save changes' : 'Save patient'}</button>
       </div>
     </div>
   </div>
 }
 
 function NightDischargeCard({ form, earlyDischarges, status, dismissStatus, refresh, add, remove }: any) {
-  return <section className="early-discharge-card">
+  const isMissing = useMissingItem()
+  const validation = useContext(ValidationContext)
+  const planMissing = validation.show && validation.missing.includes('Tomorrow Discharge Plan')
+  return <section className={`early-discharge-card${planMissing ? ' has-missing' : ''}`} data-missing-item="Tomorrow Discharge Plan">
     <div className="flow-card-head">
       <div><h2>Tomorrow's discharges</h2><span><strong>{earlyDischarges.length}</strong> patients for {targetDischargeDate(form.reportDate) || 'tomorrow'}</span></div>
       <div className="night-flow-actions"><button className="btn small" onClick={refresh}>Refresh</button><button className="btn small primary" onClick={add}>Add patient</button></div>
     </div>
     {status && <div style={{ padding: '10px 18px 0' }} role="status"><span className="night-status-chip">{status}<button type="button" onClick={dismissStatus} aria-label="Dismiss discharge status" title="Dismiss" style={{ marginLeft: 10, padding: 0, border: 0, background: 'transparent', color: 'inherit', fontWeight: 900, cursor: 'pointer' }}>x</button></span></div>}
     <div className="early-discharge-list">
-      {earlyDischarges.length === 0 ? <div className="early-discharge-empty"><strong>Build tomorrow's discharge list</strong><span>No patients are planned yet. Add an inpatient as an early or planned discharge.</span><button className="btn primary" onClick={add}>Add discharge patient</button></div> : earlyDischarges.map((row: EarlyDischarge) => <article className="early-discharge-row" key={row.id}>
+      {earlyDischarges.length === 0 ? <div className="early-discharge-empty"><strong>Build tomorrow's discharge list</strong><span>No patients are planned yet. Use Add patient above to add an inpatient as an early or planned discharge.</span></div> : earlyDischarges.map((row: EarlyDischarge, index: number) => <article className={`early-discharge-row${isMissing(`Discharge Patient ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Discharge Patient ${index + 1}`} key={row.id}>
         <div><strong>{row.name || 'Unnamed patient'}</strong><p>{row.code || 'No MRN'} - {row.reason || 'No reason recorded'}</p></div>
         <span className={`status-token ${row.type === 'Early' ? 'warning' : 'ok'}`}>{row.type}</span>
-        <button className="btn small danger icon-delete" aria-label="Delete discharge patient" title="Delete" onClick={() => remove(row)}>x</button>
+        <DeleteButton label="Delete discharge patient" onClick={() => remove(row)} />
       </article>)}
     </div>
   </section>
@@ -1711,6 +2323,16 @@ function EarlyDischargeModal({ save, close }: any) {
     }, 450)
     return () => { cancelled = true; window.clearTimeout(timeout) }
   }, [draft.patientCode])
+  const validation = useSaveErrors((d: typeof draft) => {
+    const e: Record<string, string> = {}
+    if (!d.type) e.type = 'Select early or planned discharge.'
+    if (!d.patientCode.trim()) e.patient = 'Enter the inpatient code or MRN.'
+    else if (patientLookup.state === 'searching') e.patient = 'Still checking the Inpatient List, try again in a moment.'
+    else if (patientLookup.state !== 'found') e.patient = patientLookup.message || 'Enter a valid inpatient code or MRN.'
+    if (!d.reason.trim()) e.reason = 'Add the discharge planning notes.'
+    return e
+  }, draft)
+  const errors = validation.errors
   return <div className="modal flow-popup-backdrop" role="dialog" aria-modal="true">
     <div className="flow-popup early-discharge-popup">
       <div className="flow-popup-head">
@@ -1718,48 +2340,65 @@ function EarlyDischargeModal({ save, close }: any) {
         <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
       <div className="flow-popup-stack">
-        <label className="flow-popup-field"><span>Discharge type *</span><select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value as EarlyDischarge['type'] | '' })}><option value="" disabled hidden>Select type</option><option value="Early">Early</option><option value="Planned">Planned</option></select></label>
-        <label className="flow-popup-field"><span>Patient / MRN *</span><input value={draft.patientCode} onChange={(e) => setDraft({ ...draft, patientCode: e.target.value })} placeholder="Enter inpatient code or MRN" autoFocus /></label>
+        <label className={`flow-popup-field${errors.type ? ' has-error' : ''}`}><span>Discharge type <span className="req-mark" aria-hidden="true">*</span></span><PulseSelect ariaLabel="Discharge type" placeholder="Select type" value={draft.type} onChange={(type) => setDraft({ ...draft, type: type as EarlyDischarge['type'] })} options={[{ value: 'Early', label: 'Early' }, { value: 'Planned', label: 'Planned' }]} /><FieldError message={errors.type} /></label>
+        <label className={`flow-popup-field${errors.patient ? ' has-error' : ''}`}><span>Patient / MRN <span className="req-mark" aria-hidden="true">*</span></span><input value={draft.patientCode} onChange={(e) => setDraft({ ...draft, patientCode: e.target.value })} placeholder="Enter inpatient code or MRN" autoFocus /><FieldError message={errors.patient} /></label>
         {patientLookup.state === 'searching' && <div className="night-status-chip" role="status">Checking the Inpatient List...</div>}
         {patientLookup.state === 'found' && <div className="night-status-chip" role="status"><strong>{patientLookup.patient.and_patientname || 'Patient found'}</strong>&nbsp;-&nbsp;{patientLookup.patient.and_name || draft.patientCode.trim()}</div>}
         {(patientLookup.state === 'missing' || patientLookup.state === 'error') && <div className="night-status-chip" role="alert">{patientLookup.message}</div>}
-        <label className="flow-popup-field"><span>Reason *</span><textarea value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} placeholder="Discharge planning notes..." /></label>
+        <label className={`flow-popup-field${errors.reason ? ' has-error' : ''}`}><span>Reason <span className="req-mark" aria-hidden="true">*</span></span><TextArea error={errors.reason} maxLength={300} value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} placeholder="Discharge planning notes..." /></label>
       </div>
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" disabled={!draft.type || patientLookup.state !== 'found' || !draft.reason.trim()} onClick={() => save(draft)}>Save patient</button>
+        <button className="btn primary" onClick={() => { if (validation.check()) save(draft) }}>Save patient</button>
       </div>
     </div>
   </div>
 }
 
 function OpsTab({ opsIssues, setOpsIssues }: any) {
+  const isMissing = useMissingItem()
   const emptyOpsDraft = (): OpsIssue => ({ id: '', funcId: '', affectedId: '', issueId: '', statusId: '' as Resolution, desc: '', pendingDetails: '' })
   const [draft, setDraft] = useState<OpsIssue>(emptyOpsDraft)
   const [adding, setAdding] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('all')
   const pendingOps = opsIssues.filter((o: OpsIssue) => o.statusId !== '778000001')
   const carriedOps = opsIssues.filter((o: OpsIssue) => String(o.id || '').startsWith('carry-ops-'))
   const pendingCarriedOps = carriedOps.filter((o: OpsIssue) => o.statusId !== '778000001')
-  const canSave = Boolean(draft.funcId && draft.affectedId && draft.issueId && draft.statusId && draft.desc.trim() && (draft.statusId === '778000001' || draft.pendingDetails.trim()))
+  const validation = useSaveErrors((d: OpsIssue) => {
+    const e: Record<string, string> = {}
+    if (!d.funcId) e.funcId = 'Select the service functionality.'
+    if (!d.affectedId) e.affectedId = 'Select the affected service.'
+    if (!d.issueId) e.issueId = 'Select the type of issue.'
+    if (!d.statusId) e.statusId = 'Select the resolution status.'
+    if (!d.desc.trim()) e.desc = 'Describe the issue.'
+    if (d.statusId && d.statusId !== '778000001' && !d.pendingDetails.trim()) e.pendingDetails = 'Add a summary or the pending details.'
+    return e
+  }, draft)
+  const errors = validation.errors
   function resetOpsDraft() { setDraft(emptyOpsDraft()) }
-  function closeOpsModal() { resetOpsDraft(); setAdding(false) }
+  function closeOpsModal() { resetOpsDraft(); validation.reset(); setAdding(false) }
   function updateOpsIssue(issue: OpsIssue) { setDraft({ ...issue, funcId: issue.funcId === '778000002' ? '' : issue.funcId }); setAdding(true) }
   function save() {
-    if (!canSave) return
+    if (!validation.check()) return
     const item = { ...draft, id: draft.id || `ops-${Date.now()}` }
     setOpsIssues(draft.id ? opsIssues.map((issue: OpsIssue) => issue.id === draft.id ? item : issue) : [...opsIssues, item])
     closeOpsModal()
   }
   return <main className="workflow-page ops-page"><PageTitle step="05" eyebrow="Operations" title="Operations" subtitle="Shift-reported operational exceptions and accountable follow-up." action={<button className="btn primary" onClick={() => setAdding(true)}>Log operational exception</button>} /><section className="ops-summary"><div><small>Shift operations</small><b>{opsIssues.length ? 'Exceptions logged' : 'Clear this shift'}</b><p>{carriedOps.length ? `${carriedOps.length} carried over from previous shift` : opsIssues.length ? 'Operational interruptions recorded' : 'No operational interruptions logged'}</p></div><div><small>Open exceptions</small><b>{pendingOps.length}</b><p>Unresolved partial or total outages</p></div><div><small>Duty Manager attention</small><b>{pendingOps.length}</b><p>Pending exceptions requiring follow-up</p></div></section>
-    {adding && <ModalShell title={draft.id ? 'Update Operations Outage' : 'Log Operations Outage'} tone="ops" onClose={closeOpsModal}><div className="grid report-grid two"><SelectField label="Service Functionality *" value={draft.funcId} options={outageFunctionalityOptions} placeholder="Select" onChange={(funcId: string) => setDraft({ ...draft, funcId })} /><SelectField label="Service Affected *" value={draft.affectedId} options={serviceAffectedOptions} placeholder="Select" onChange={(affectedId: string) => setDraft({ ...draft, affectedId })} /><SelectField label="Type of Issue *" value={draft.issueId} options={opsIssueOptions} placeholder="Select" onChange={(issueId: string) => setDraft({ ...draft, issueId })} /><SelectField label="Resolution Status *" value={draft.statusId} options={resolutionOptions} placeholder="Select" onChange={(statusId: Resolution) => setDraft({ ...draft, statusId })} /></div><Field label="Description of Issue *"><textarea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field>{draft.statusId && draft.statusId !== '778000001' && <Field label="Summary / Pending Details *"><textarea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} /></Field>}<div className="modal-actions"><button className="btn" onClick={closeOpsModal}>Cancel</button><button className="btn primary" disabled={!canSave} onClick={save}>{draft.id ? 'Save Update' : 'Save Operations Outage'}</button></div></ModalShell>}
+    {adding && <ModalShell title={draft.id ? 'Update Operations Outage' : 'Log Operations Outage'} tone="ops" onClose={closeOpsModal}><div className="grid report-grid two"><SelectField label="Service Functionality *" error={errors.funcId} value={draft.funcId} options={outageFunctionalityOptions} placeholder="Select" onChange={(funcId: string) => setDraft({ ...draft, funcId })} /><SelectField label="Service Affected *" error={errors.affectedId} value={draft.affectedId} options={serviceAffectedOptions} placeholder="Select" onChange={(affectedId: string) => setDraft({ ...draft, affectedId })} /><SelectField label="Type of Issue *" error={errors.issueId} value={draft.issueId} options={opsIssueOptions} placeholder="Select" onChange={(issueId: string) => setDraft({ ...draft, issueId })} /><SelectField label="Resolution Status *" error={errors.statusId} value={draft.statusId} options={resolutionOptions} placeholder="Select" onChange={(statusId: Resolution) => setDraft({ ...draft, statusId })} /></div><Field label="Description of Issue *" error={errors.desc}><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field>{draft.statusId && draft.statusId !== '778000001' && <Field label="Summary / Pending Details *" error={errors.pendingDetails}><TextArea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} /></Field>}<div className="modal-actions"><button className="btn" onClick={closeOpsModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Update' : 'Save Operations Outage'}</button></div></ModalShell>}
     <div className={`previous-placeholder ops-tone ${pendingCarriedOps.length ? 'has-carry' : ''}`}>{pendingCarriedOps.length ? `${pendingCarriedOps.length} pending operations outage${pendingCarriedOps.length === 1 ? '' : 's'} carried over from the previous shift. Update the item to resolve it.` : 'No pending operations outages carried over from previous shifts.'}</div>
     <div className="movement-head ops-timeline-head"><div><h2>Operational exception timeline</h2></div><p>Current-shift interruptions and accountable follow-up.</p></div>
-    <section className="event-timeline ops-timeline">{opsIssues.length === 0 ? <Empty title="All systems fully functional" text="No active outages have been logged for this handover." /> : opsIssues.map((o: OpsIssue) => <article className="timeline-row ops-timeline-row" key={o.id}>
+    {opsIssues.length > 0 && <TimelineFilters label="Filter operational exceptions by status" options={statusFilters(opsIssues.map((o: OpsIssue) => o.statusId))} value={statusFilter} onChange={setStatusFilter} />}
+    <section className="event-timeline ops-timeline">{opsIssues.length === 0 ? <Empty title="All systems fully functional" text="No active outages have been logged for this handover." /> : !opsIssues.some((o: OpsIssue) => statusFilter === 'all' || String(o.statusId) === statusFilter) ? <Empty title="No exceptions with this status" text="Choose another filter to see the rest of the timeline." /> : opsIssues.map((o: OpsIssue, index: number) => (statusFilter === 'all' || String(o.statusId) === statusFilter) && <article className={`timeline-row ops-timeline-row pulse-row${isMissing(`Ops Issue ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Ops Issue ${index + 1}`} key={o.id}>
       <time>{labelFor(serviceFunctionalityOptions, o.funcId)}</time>
-      <span className={`timeline-dot ${o.statusId === '778000001' ? 'low' : 'warning'}`} />
-      <div><small>{labelFor(resolutionOptions, o.statusId)}{String(o.id || '').startsWith('carry-ops-') ? ' · Carried over' : ''}</small><h3>{labelFor(serviceAffectedOptions, o.affectedId)} - {labelFor(opsIssueOptions, o.issueId)}</h3><p>{o.desc || 'No issue description recorded.'}</p></div>
-      <div className="timeline-owner"><b>{o.pendingDetails || (o.statusId === '778000001' ? 'Resolved' : 'Duty Manager follow-up')}</b><span>{o.statusId === '778000001' ? 'Resolution completed' : 'Pending details'}</span></div>
-      <div className="row-actions compact"><button className="btn small" onClick={() => updateOpsIssue(o)}>Update</button><button className="btn small danger icon-delete" aria-label="Delete operational exception" title="Delete" onClick={() => setOpsIssues(opsIssues.filter((x: OpsIssue) => x.id !== o.id))}>x</button></div>
+      <span className={`timeline-dot ${o.statusId === '778000001' ? 'low' : 'warning'}`} title={labelFor(resolutionOptions, o.statusId)} />
+      <div className="tl-body">
+        <h3 className="tl-title">{labelFor(serviceAffectedOptions, o.affectedId)} - {labelFor(opsIssueOptions, o.issueId)}</h3>
+        {String(o.id || '').startsWith('carry-ops-') && <div className="tl-sub">Carried over from previous shift</div>}
+        <p className="tl-desc">{o.desc || 'No issue description recorded.'}</p>
+        {o.statusId !== '778000001' && <TimelineField title="Pending details" text={o.pendingDetails} />}
+      </div>
+      <div className="row-actions compact"><button className="btn small" onClick={() => updateOpsIssue(o)}>Update</button><DeleteButton label="Delete operational exception" onClick={() => setOpsIssues(opsIssues.filter((x: OpsIssue) => x.id !== o.id))} /></div>
     </article>)}</section>
   </main>
 }
@@ -1770,22 +2409,30 @@ function ExperienceTab({ form, updateForm }: any) {
     <section className="experience-summary"><div><small>Experience status</small><b>{hasFollowUp ? 'Active follow-up' : 'No active concerns'}</b><p>{hasFollowUp ? 'Experience items require documented follow-up.' : 'No unresolved patient or family experience issues logged.'}</p></div><div><small>Experience attention</small><b>{form.complaintsCount}</b><p>Escalated complaints</p></div><div><small>Governance signals</small><div className="metric-cluster"><b>{form.ovrsCount}<span>Escalated OVRs</span></b><b>{form.govVisit === 'Yes' ? 1 : 0}<span>Regulatory visits</span></b></div></div></section>
     <div className="movement-head experience-register-head"><div><h2>Experience and governance record</h2></div><p>Current-shift concerns, variance reports and authority activity.</p></div>
     <section className="experience-register">
-      <ExperiencePanel title="Escalated complaints" subtitle="Patient dissatisfaction cases" state={form.complaintsCount ? `${form.complaintsCount} logged` : 'None logged'}><NumberField label="Number of Complaints *" value={form.complaintsCount} onChange={(complaintsCount: number) => updateForm({ complaintsCount })} />{form.complaintsCount > 0 && <Field label="Summary of Complaints *"><textarea value={form.complaintsSummary} onChange={(e) => updateForm({ complaintsSummary: e.target.value })} placeholder="Describe patient complaints clearly..." /></Field>}</ExperiencePanel>
-      <ExperiencePanel title="Escalated OVRs" subtitle="Official variance reports" state={form.ovrsCount ? `${form.ovrsCount} logged` : 'None logged'}><NumberField label="Number of OVRs *" value={form.ovrsCount} onChange={(ovrsCount: number) => updateForm({ ovrsCount })} />{form.ovrsCount > 0 && <Field label="Summary of OVRs *"><textarea value={form.ovrsSummary} onChange={(e) => updateForm({ ovrsSummary: e.target.value })} placeholder="Describe incident / OVR details..." /></Field>}</ExperiencePanel>
-      <ExperiencePanel title="Regulatory & Government" subtitle="Authority visits during shift" state={form.govVisit === 'Yes' ? 'Visit logged' : 'No visits'}><Field label="Government / Regulatory Visit"><select value={form.govVisit} onChange={(e) => updateForm({ govVisit: e.target.value })}><option value="No">No Visits</option><option value="Yes">Yes, Visited</option></select></Field>{form.govVisit === 'Yes' && <Field label="Authority Name & Findings Summary *"><textarea value={form.govSummary} onChange={(e) => updateForm({ govSummary: e.target.value })} placeholder="Include authority name, purpose of visit, and findings..." /></Field>}</ExperiencePanel>
+      <ExperiencePanel title="Escalated complaints" subtitle="Patient dissatisfaction cases" state={form.complaintsCount ? `${form.complaintsCount} logged` : 'None logged'}><NumberField label="Number of Complaints *" value={form.complaintsCount} onChange={(complaintsCount: number) => updateForm({ complaintsCount })} />{form.complaintsCount > 0 && <Field label="Summary of Complaints *" required="Summary of Complaints"><TextArea value={form.complaintsSummary} onChange={(e) => updateForm({ complaintsSummary: e.target.value })} placeholder="Describe patient complaints clearly..." /></Field>}</ExperiencePanel>
+      <ExperiencePanel title="Escalated OVRs" subtitle="Official variance reports" state={form.ovrsCount ? `${form.ovrsCount} logged` : 'None logged'}><NumberField label="Number of OVRs *" value={form.ovrsCount} onChange={(ovrsCount: number) => updateForm({ ovrsCount })} />{form.ovrsCount > 0 && <Field label="Summary of OVRs *" required="Summary of OVRs"><TextArea value={form.ovrsSummary} onChange={(e) => updateForm({ ovrsSummary: e.target.value })} placeholder="Describe incident / OVR details..." /></Field>}</ExperiencePanel>
+      <ExperiencePanel title="Regulatory & Government" subtitle="Authority visits during shift" state={form.govVisit === 'Yes' ? 'Visit logged' : 'No visits'}><Field label="Government / Regulatory Visit"><PulseSelect ariaLabel="Government or regulatory visit" value={form.govVisit} onChange={(govVisit) => updateForm({ govVisit })} options={[{ value: 'No', label: 'No Visits' }, { value: 'Yes', label: 'Yes, Visited' }]} /></Field>{form.govVisit === 'Yes' && <Field label="Authority Name & Findings Summary *" required="Authority Name & Findings Summary"><TextArea value={form.govSummary} onChange={(e) => updateForm({ govSummary: e.target.value })} placeholder="Include authority name, purpose of visit, and findings..." /></Field>}</ExperiencePanel>
     </section>
   </main>
 }
-function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, busy }: any) {
-  const readinessSections = [
-    ['01', 'General / Shift Identity'],
-    ['02', 'Hospital Events'],
-    ['03', 'Administrative Issues'],
-    ['04', 'Patient Flow'],
-    ['05', 'Operations'],
-    ['06', 'Experience'],
-  ]
+function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, busy, setTab, showErrors, onSubmitAttempt }: any) {
   const carriedPending = pendingItems.filter((item: any) => String(item.id || '').startsWith('carry-'))
+  const missing: string[] = completion.missing
+  const [bannerOpen, setBannerOpen] = useState(true)
+  const bannerRef = useRef<HTMLDivElement>(null)
+  const finalReviewRef = useRef<HTMLElement>(null)
+  const missingBySection = reportTabs.map(([code, label, key]) => ({ code, label, key, fields: missing.filter((field) => missingFieldTab(field) === key) }))
+
+  function handleSubmit() {
+    if (completion.ok) {
+      submitReport()
+      return
+    }
+    onSubmitAttempt()
+    setBannerOpen(true)
+    // The message renders just above the Submit button; nudge it into view if the page is short on space.
+    window.setTimeout(() => bannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 0)
+  }
 
   return <main className="workflow-page summary-page">
     <PageTitle step="07" eyebrow="Handover Review" title="Summary" subtitle="Review readiness, unresolved responsibilities and transfer state before handover." />
@@ -1797,24 +2444,22 @@ function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, 
       </div>
       <div>
         <small>Final transfer action</small>
-        <p>{completion.ok ? 'All required fields are complete.' : 'Hot issues during shift are required before this report can be submitted.'}</p>
-        <button className="btn primary submit" disabled={busy} onClick={submitReport}>{busy ? 'Submitting...' : 'Submit Shift Report'}</button>
-        <strong className="summary-action-note">{completion.ok ? 'Ready for final transfer.' : 'Review required - complete mandatory fields before submission.'}</strong>
-        {!completion.ok && <div className="missing-fields-panel"><span>Missing fields</span>{completion.missing.map((field: string) => <b key={field}>{field}</b>)}</div>}
+        <p>{completion.ok ? 'All required fields are complete.' : `${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing across the handover pages.`}</p>
+        <strong className="summary-action-note">{completion.ok ? 'Ready for final transfer.' : 'Submit is at the end of this page.'}</strong>
       </div>
     </section>
     <section className="summary-readiness">
       <div className="summary-card-head"><h2>Section readiness</h2><span>Required-field review across the handover</span></div>
       <div className="readiness-grid">
-        {readinessSections.map(([code, label]) => <div className="ready-line" key={label}><span>{code} - {label}</span><b>{completion.ok ? 'Complete' : 'Review required'}</b></div>)}
+        {missingBySection.map((section) => <div className={`ready-line ${section.fields.length ? 'is-missing' : 'is-complete'}`} key={section.key}><span>{section.code} - {section.label}</span>{section.fields.length ? <button type="button" className="ready-line-link" onClick={() => setTab(section.key)}>{section.fields.length} missing - fix</button> : <b>Complete</b>}</div>)}
       </div>
     </section>
     <div className="summary-main-grid">
-      <section className="card final-review" style={{ paddingBottom: 20 }}>
+      <section className="card final-review" style={{ paddingBottom: 20 }} ref={finalReviewRef}>
         <div className="section-header"><h2>Final review</h2><span>Current shift handover</span></div>
-        <Field label="Final handover note - Hot issues during shift *"><textarea value={form.hotIssues} onChange={(e) => updateForm({ hotIssues: e.target.value })} /></Field>
+        <Field label="Final handover note - Hot issues during shift *" required="Hot Issues Summary"><TextArea value={form.hotIssues} onChange={(e) => updateForm({ hotIssues: e.target.value })} /></Field>
         <p className="field-help">Capture only issues requiring incoming Duty Manager awareness.</p>
-        {form.shift === 'Night' && <div className="grid night-summary-fields"><Field label="Night Medical Meeting"><select value={form.nightMedicalMeeting} onChange={(e) => updateForm({ nightMedicalMeeting: e.target.value })}><option value="778000000">Done</option><option value="778000001">Not Done</option></select></Field><Field label="Meeting Summary"><textarea value={form.nightSummary} onChange={(e) => updateForm({ nightSummary: e.target.value })} /></Field></div>}
+        {form.shift === 'Night' && <div className="grid night-summary-fields"><Field label="Night Medical Meeting"><PulseSelect ariaLabel="Night medical meeting" value={form.nightMedicalMeeting} onChange={(nightMedicalMeeting) => updateForm({ nightMedicalMeeting })} options={[{ value: '778000000', label: 'Done' }, { value: '778000001', label: 'Not Done' }]} /></Field><Field label="Meeting Summary" required="Night Meeting Summary"><TextArea value={form.nightSummary} onChange={(e) => updateForm({ nightSummary: e.target.value })} /></Field></div>}
       </section>
       <aside className="transfer-state"><div className="transfer-head"><h2>Final transfer state</h2><span>Outgoing handover</span></div><div><span>Report state</span><b>{completion.ok ? 'Ready' : 'Review required'}</b></div><div><span>Submission</span><b>Not submitted</b></div><div><span>Incoming responsibility</span><b>Pending assignment</b></div><div><span>Acknowledgment</span><b>Not yet acknowledged</b></div></aside>
     </div>
@@ -1823,6 +2468,26 @@ function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, 
       <div className="summary-carry-list">
         {carriedPending.length === 0 ? <div className="summary-carry-empty"><strong>No responsibilities carried forward</strong><p>No pending items from previous shifts are assigned to this handover.</p></div> : carriedPending.map((item: any) => <div className="summary-carry-item" key={item.id}><div><strong>{item.catLabel || item.desc || 'Carried responsibility'}</strong><p>From {carryIssueOrigin(item)}</p></div><span>{labelFor(resolutionOptions, item.status || item.statusId)}</span></div>)}
       </div>
+    </section>
+    {showErrors && bannerOpen && missing.length > 0 && <div className="page-missing-banner summary-missing-banner" role="alert" ref={bannerRef}>
+      <div className="summary-missing-body">
+        <strong>{missing.length} required {missing.length === 1 ? 'field is' : 'fields are'} missing. Complete them before submitting.</strong>
+        {missingBySection.filter((section) => section.fields.length).map((section) => <div className="summary-missing-group" key={section.key}>
+          <span>{section.code} - {section.label}</span>
+          <div className="missing-chip-list">{section.fields.map((field) => <b key={field}>{field}</b>)}</div>
+          <button type="button" className="btn small" onClick={() => setTab(section.key)}>Go to page</button>
+        </div>)}
+        {missing.some((field) => missingFieldTab(field) === 'summary') && <div className="summary-missing-group">
+          <span>07 - Summary (this page)</span>
+          <div className="missing-chip-list">{missing.filter((field) => missingFieldTab(field) === 'summary').map((field) => <b key={field}>{field}</b>)}</div>
+          <button type="button" className="btn small" onClick={() => finalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>Show field</button>
+        </div>}
+      </div>
+      <button type="button" className="summary-missing-close" aria-label="Close" onClick={() => setBannerOpen(false)}>x</button>
+    </div>}
+    <section className="summary-submit-bar">
+      <div><small>Final transfer action</small><p>{completion.ok ? 'All required fields are complete. Ready for final transfer.' : `${missing.length} required ${missing.length === 1 ? 'field' : 'fields'} to complete before submission.`}</p></div>
+      <button className="btn primary summary-submit-btn" disabled={busy} onClick={handleSubmit}>{busy ? 'Submitting...' : 'Submit Shift Report'}</button>
     </section>
   </main>
 }
@@ -1869,7 +2534,7 @@ function severityClass(value: string | number) {
   return 'low'
 }
 
-function PatientLookup({ area, label, value, onSelect }: { area: PatientArea; label: string; value: string; onSelect: (patient: { id: string; name: string; code: string; area: PatientArea }) => void }) {
+function PatientLookup({ area, label, value, error, onSelect }: { area: PatientArea; label: string; value: string; error?: string; onSelect: (patient: { id: string; name: string; code: string; area: PatientArea }) => void }) {
   const [query, setQuery] = useState(value || '')
   const [matches, setMatches] = useState<any[]>([])
 
@@ -1880,9 +2545,9 @@ function PatientLookup({ area, label, value, onSelect }: { area: PatientArea; la
     setMatches(await searchPatients(area, next))
   }
 
-  return <Field label={label}><div className="lookup-wrap"><input value={query} placeholder="Search by Name or MRN..." onChange={(e) => change(e.target.value)} onBlur={() => setTimeout(() => setMatches([]), 150)} />{matches.length > 0 && <div className="lookup-results">{matches.map((p) => <button className="lookup-item" key={p.id} onClick={() => { onSelect(p); setQuery(`${p.name}${p.code ? ` (${p.code})` : ''}`); setMatches([]) }}>{p.name || 'Unnamed Patient'} {p.code ? `- ${p.code}` : ''}</button>)}</div>}</div></Field>
+  return <Field label={label} error={error}><div className="lookup-wrap"><input value={query} placeholder="Search by Name or MRN..." onChange={(e) => change(e.target.value)} onBlur={() => setTimeout(() => setMatches([]), 150)} />{matches.length > 0 && <div className="lookup-results">{matches.map((p) => <button className="lookup-item" key={p.id} onClick={() => { onSelect(p); setQuery(`${p.name}${p.code ? ` (${p.code})` : ''}`); setMatches([]) }}>{p.name || 'Unnamed Patient'} {p.code ? `- ${p.code}` : ''}</button>)}</div>}</div></Field>
 }
-function Submitted({ form, events, opsIssues, pendingItems, openReport, goHome }: any) {
+function Submitted({ form, events, opsIssues, pendingItems, openReport, downloadPdf, goHome }: any) {
   const majorEvents = events.filter((e: EventItem) => e.severity === '778000002')
   const outageNotice = opsIssues.some((o: OpsIssue) => ['778000000', '778000004'].includes(o.affectedId))
   return <main className="workflow-page submitted-page">
@@ -1899,7 +2564,7 @@ function Submitted({ form, events, opsIssues, pendingItems, openReport, goHome }
       </div>
       <div className="submitted-actions">
         <button className="btn primary" onClick={openReport}>View full report</button>
-        <button className="btn" onClick={() => window.print()}>Download PDF</button>
+        <button className="btn" onClick={downloadPdf}>Download PDF</button>
         <button className="btn" onClick={goHome}>Home</button>
       </div>
     </section>
@@ -1929,7 +2594,31 @@ function Submitted({ form, events, opsIssues, pendingItems, openReport, goHome }
   </main>
 }
 
-function ReportModal({ bundle, close, acknowledge }: any) {
+// Generates the document PDF (see reportPdf.ts). `auto` downloads once the report has finished loading.
+function DownloadPdfButton({ bundle, auto, onAutoDone }: { bundle: ReportBundle; auto?: boolean; onAutoDone?: () => void }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle')
+  async function download() {
+    setState('busy')
+    try {
+      await downloadReportPdf(buildReportPdf(bundle))
+      setState('idle')
+    } catch (error) {
+      console.error('PDF generation failed', error)
+      setState('failed')
+    }
+  }
+  useEffect(() => {
+    if (!auto || bundle.loading) return
+    onAutoDone?.()
+    download()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, bundle.loading])
+  return <button className="btn" disabled={state === 'busy' || bundle.loading} onClick={download}>
+    {state === 'busy' ? 'Preparing PDF...' : state === 'failed' ? 'PDF failed - try again' : 'Download PDF'}
+  </button>
+}
+
+function ReportModal({ bundle, close, acknowledge, autoDownload, onAutoDownloaded }: any) {
   const r = bundle.report || {}
   const flow = bundle.flow?.[0] || {}
   const flowEntries = bundle.flowEntries || []
@@ -1983,32 +2672,47 @@ function ReportModal({ bundle, close, acknowledge }: any) {
 
         <section className="report-surface">
           <div className="surface-head"><h3>Patient flow</h3><p>{bundle.flow.length} summary records attached</p></div>
-          {bundle.flow.length === 0 ? <Empty title="No patient flow summary" text="No patient flow summary is attached to this handover." /> : <div className="report-detail-grid">
-            <ReportMetric label="Staff coverage" value={formattedChoice(flow, 'dma_staffadequacy', staffOptions, 'Not recorded')} />
-            <ReportMetric label="Total ER volume" value={<>{flow.dma_ervolume ?? 0} <a className="er-dashboard-link" href="https://app.powerbi.com/singleSignOn?experience=power-bi&ru=https%3A%2F%2Fapp.powerbi.com%2Fgroups%2F3f5475b1-b4ad-4bcd-8909-7c94862de69c%2Freports%2Fde88cd1b-5c29-4599-a594-57de388f3015%2Fb2d5c8b0b26932ebac9b%3Fexperience%3Dpower-bi%26noSignUpCheck%3D1" target="_blank" rel="noreferrer">↗ View</a></>} />
-            <ReportMetric label="ER admissions" value={flow.dma_eradmissions ?? 0} />
-            <ReportMetric label="OPD admissions" value={flow.dma_opdadmissions ?? 0} />
-            <ReportMetric label="Total admissions" value={flow.dma_admissions ?? 0} />
-            <ReportMetric label="Planned discharges" value={flow.dma_planneddischarges ?? 0} />
-            <ReportMetric label="Unplanned discharges" value={flow.dma_unplanneddischarges ?? 0} />
-            <ReportMetric label="Total discharges" value={flow.dma_discharges ?? 0} />
-            <ReportMetric label="Total OR cases" value={flow.dma_totalorcases ?? 0} />
-            <ReportMetric label="Pre-op" value={flow.dma_preoperative ?? 0} />
-            <ReportMetric label="Post-op" value={flow.dma_postoperative ?? 0} />
-            <ReportMetric label="Postponed OR" value={flow.dma_postponedorcases ?? 0} />
-            <ReportMetric label="Cancelled OR" value={flow.dma_cancelledorcases ?? 0} />
-            <ReportMetric label="ER DAMA / retained" value={`${flow.dma_erdama ?? 0} / ${flow.dma_erdamaretention ?? 0}`} />
-            <ReportMetric label="Inpatient DAMA / retained" value={`${flow.dma_inpdama ?? 0} / ${flow.dma_inpdamaretention ?? 0}`} />
-            <ReportMetric label="Closed DAMA / retained" value={`${flow.dma_closeddama ?? 0} / ${flow.dma_closeddamaretention ?? 0}`} />
-            {isNightReport && <ReportMetric label="INP utilization" value={`${flow.dma_inputilization ?? 0}%`} />}
-            {isNightReport && <ReportMetric label="ICU utilization" value={`${flow.dma_icuutilization ?? 0}%`} />}
-            {isNightReport && <ReportMetric label="CCU utilization" value={`${flow.dma_ccuutilization ?? 0}%`} />}
-            {isNightReport && <ReportMetric label="PICU utilization" value={`${flow.dma_picuutilization ?? 0}%`} />}
-            {isNightReport && <ReportMetric label="NICU utilization" value={`${flow.dma_nicuutilization ?? 0}%`} />}
-            {isNightReport && <ReportMetric label="Stroke utilization" value={`${flow.dma_strokeutilization ?? 0}%`} />}
-            <ReportMetric label="Shortfall summary" value={flow.dma_shortfallsummary || 'None'} wide />
-            <ReportMetric label="Delayed discharge narrative" value={flow.dma_delayeddischargesnarrative || 'None'} wide />
-            <ReportMetric label="Prolonged ER narrative" value={flow.dma_prolongedernarrative || 'None'} wide />
+          {/* Grouped the same way as the Update patient flow popup, so related values read together. */}
+          {bundle.flow.length === 0 ? <Empty title="No patient flow summary" text="No patient flow summary is attached to this handover." /> : <div className="report-flow-groups">
+            <ReportGroup title="Staff coverage">
+              <ReportMetric label="Staff coverage" value={formattedChoice(flow, 'dma_staffadequacy', staffOptions, 'Not recorded')} />
+              <ReportMetric label="Shortfall summary" value={flow.dma_shortfallsummary || 'None'} wide />
+            </ReportGroup>
+            <ReportGroup title="Inbound">
+              <ReportMetric label="ER admissions" value={flow.dma_eradmissions ?? 0} />
+              <ReportMetric label="OPD admissions" value={flow.dma_opdadmissions ?? 0} />
+              <ReportMetric label="Total admissions" value={flow.dma_admissions ?? 0} />
+              <ReportMetric label="Total ER volume" value={<>{flow.dma_ervolume ?? 0} <a className="er-dashboard-link" href="https://app.powerbi.com/singleSignOn?experience=power-bi&ru=https%3A%2F%2Fapp.powerbi.com%2Fgroups%2F3f5475b1-b4ad-4bcd-8909-7c94862de69c%2Freports%2Fde88cd1b-5c29-4599-a594-57de388f3015%2Fb2d5c8b0b26932ebac9b%3Fexperience%3Dpower-bi%26noSignUpCheck%3D1" target="_blank" rel="noreferrer">↗ View</a></>} />
+            </ReportGroup>
+            <ReportGroup title="Outbound">
+              <ReportMetric label="Planned discharges" value={flow.dma_planneddischarges ?? 0} />
+              <ReportMetric label="Unplanned discharges" value={flow.dma_unplanneddischarges ?? 0} />
+              <ReportMetric label="Total discharges" value={flow.dma_discharges ?? 0} />
+            </ReportGroup>
+            <ReportGroup title="Theatre flow">
+              <ReportMetric label="Total OR cases" value={flow.dma_totalorcases ?? 0} />
+              <ReportMetric label="Pre-op" value={flow.dma_preoperative ?? 0} />
+              <ReportMetric label="Post-op" value={flow.dma_postoperative ?? 0} />
+              <ReportMetric label="Postponed" value={flow.dma_postponedorcases ?? 0} />
+              <ReportMetric label="Cancelled" value={flow.dma_cancelledorcases ?? 0} />
+            </ReportGroup>
+            <ReportGroup title="DAMA / retention">
+              <ReportMetric label="ER cases / retained" value={`${flow.dma_erdama ?? 0} / ${flow.dma_erdamaretention ?? 0}`} />
+              <ReportMetric label="Inpatient cases / retained" value={`${flow.dma_inpdama ?? 0} / ${flow.dma_inpdamaretention ?? 0}`} />
+              <ReportMetric label="Closed cases / retained" value={`${flow.dma_closeddama ?? 0} / ${flow.dma_closeddamaretention ?? 0}`} />
+            </ReportGroup>
+            {isNightReport && <ReportGroup title="Unit utilization">
+              <ReportMetric label="Ward (INP)" value={`${flow.dma_inputilization ?? 0}%`} />
+              <ReportMetric label="ICU" value={`${flow.dma_icuutilization ?? 0}%`} />
+              <ReportMetric label="CCU" value={`${flow.dma_ccuutilization ?? 0}%`} />
+              <ReportMetric label="PICU" value={`${flow.dma_picuutilization ?? 0}%`} />
+              <ReportMetric label="NICU" value={`${flow.dma_nicuutilization ?? 0}%`} />
+              <ReportMetric label="Stroke" value={`${flow.dma_strokeutilization ?? 0}%`} />
+            </ReportGroup>}
+            <ReportGroup title="Narratives">
+              <ReportMetric label="Delayed discharges" value={flow.dma_delayeddischargesnarrative || 'None'} wide />
+              <ReportMetric label="Prolonged ER stays" value={flow.dma_prolongedernarrative || 'None'} wide />
+            </ReportGroup>
           </div>}
           {flowEntries.length > 0 && <div className="report-record-list nested"><div className="surface-subhead">DAMA / retention entries</div>{flowEntries.map((entry: any, index: number) => <article className="report-record" key={entry.dma_patientflowentryid || index}><div><strong>{entry.dma_name || entry.dma_erpatientname || entry.dma_ipdpatientsname || 'Patient flow entry'}</strong><p>{entry.dma_reason || 'No reason recorded.'} {entry.dma_actiontaken ? `Action: ${entry.dma_actiontaken}` : ''}</p></div><span className="status-token info">{entry.dma_erdama ? 'ER DAMA' : entry.dma_inpdama ? 'INP DAMA' : 'Flow entry'}</span></article>)}</div>}
         </section>
@@ -2047,10 +2751,125 @@ function ReportModal({ bundle, close, acknowledge }: any) {
 
     <footer className="report-modal-actions">
       <button className="btn primary" onClick={acknowledge} disabled={Boolean(r.dma_dmacknowledgmenttimestamp)}>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Acknowledge'}</button>
-      <button className="btn" onClick={() => window.print()}>Download PDF</button>
+      <DownloadPdfButton bundle={bundle} auto={autoDownload} onAutoDone={onAutoDownloaded} />
       <button className="btn" onClick={close}>Close</button>
     </footer>
   </div></div>
+}
+
+// Document-style content for the downloaded PDF: plain labels and values only (no app buttons such as "View").
+function buildReportPdf(bundle: ReportBundle): PdfReport {
+  const r = bundle.report || {}
+  const flow = bundle.flow?.[0] || {}
+  const shift = shiftFromValue(r.dma_shifttype)
+  const isNight = shift === 'Night'
+  const bu = labelFor(businessUnits, r.dma_businessunit)
+  const name = r.dma_name || 'Shift Report'
+  const text = (value: unknown, fallback = 'None') => { const s = String(value ?? '').trim(); return s || fallback }
+  const num = (value: unknown) => String(value ?? 0)
+  const acknowledged = r.dma_dmacknowledgmenttimestamp ? formatDate(r.dma_dmacknowledgmenttimestamp) : 'Pending'
+
+  // Same groups as the report viewer and the Update patient flow popup.
+  const flowGroups: { heading: string; fields: PdfField[] }[] = bundle.flow.length ? [
+    { heading: 'Staff coverage', fields: [['Staff coverage', formattedChoice(flow, 'dma_staffadequacy', staffOptions, 'Not recorded')], ['Shortfall summary', text(flow.dma_shortfallsummary)]] },
+    { heading: 'Inbound', fields: [['ER admissions', num(flow.dma_eradmissions)], ['OPD admissions', num(flow.dma_opdadmissions)], ['Total admissions', num(flow.dma_admissions)], ['Total ER volume', num(flow.dma_ervolume)]] },
+    { heading: 'Outbound', fields: [['Planned discharges', num(flow.dma_planneddischarges)], ['Unplanned discharges', num(flow.dma_unplanneddischarges)], ['Total discharges', num(flow.dma_discharges)]] },
+    { heading: 'Theatre flow', fields: [['Total OR cases', num(flow.dma_totalorcases)], ['Pre-op', num(flow.dma_preoperative)], ['Post-op', num(flow.dma_postoperative)], ['Postponed', num(flow.dma_postponedorcases)], ['Cancelled', num(flow.dma_cancelledorcases)]] },
+    { heading: 'DAMA / retention', fields: [['ER cases / retained', `${num(flow.dma_erdama)} / ${num(flow.dma_erdamaretention)}`], ['Inpatient cases / retained', `${num(flow.dma_inpdama)} / ${num(flow.dma_inpdamaretention)}`], ['Closed cases / retained', `${num(flow.dma_closeddama)} / ${num(flow.dma_closeddamaretention)}`]] },
+    ...(isNight ? [{ heading: 'Unit utilization', fields: [['Ward (INP)', `${num(flow.dma_inputilization)}%`], ['ICU', `${num(flow.dma_icuutilization)}%`], ['CCU', `${num(flow.dma_ccuutilization)}%`], ['PICU', `${num(flow.dma_picuutilization)}%`], ['NICU', `${num(flow.dma_nicuutilization)}%`], ['Stroke', `${num(flow.dma_strokeutilization)}%`]] as PdfField[] }] : []),
+    { heading: 'Narratives', fields: [['Delayed discharges', text(flow.dma_delayeddischargesnarrative)], ['Prolonged ER stays', text(flow.dma_prolongedernarrative)]] },
+  ] : []
+
+  const sections: PdfSection[] = [
+    { heading: 'Executive summary', note: 'Outgoing handover note', text: text(r.dma_hotissues, 'No hot issues recorded.') },
+    bundle.flow.length
+      ? { heading: 'Patient flow', note: `${bundle.flow.length} summary record${bundle.flow.length === 1 ? '' : 's'}`, groups: flowGroups }
+      : { heading: 'Patient flow', records: [], empty: 'No patient flow summary is attached to this handover.' },
+  ]
+  if (bundle.flowEntries.length) sections.push({
+    heading: 'DAMA / retention cases', note: `${bundle.flowEntries.length} record${bundle.flowEntries.length === 1 ? '' : 's'}`,
+    records: bundle.flowEntries.map((entry: any) => ({
+      title: entry.dma_name || entry.dma_erpatientname || entry.dma_ipdpatientsname || 'Patient case',
+      badge: entry.dma_erdama ? 'ER DAMA' : entry.dma_inpdama ? 'Inpatient DAMA' : 'Case',
+      fields: [['Reason', text(entry.dma_reason, 'Not recorded')], ['Action taken', text(entry.dma_actiontaken, 'Not recorded')]],
+    })),
+  })
+  if (isNight) sections.push({
+    heading: 'Night shift review',
+    fields: [
+      ['Night medical meeting', reportChoiceLabel([['778000000', 'Done'], ['778000001', 'Not done']], r.dma_nightmedicalmeeting, 'Not recorded')],
+      ['Meeting summary', text(r.dma_nightmedicalmeetingsummary)],
+    ],
+  })
+  sections.push(
+    {
+      heading: 'Hospital events', note: `${bundle.events.length} record${bundle.events.length === 1 ? '' : 's'}`, empty: 'No hospital events are attached to this handover.',
+      records: bundle.events.map((e: any) => ({
+        title: e.dma_name || e.dma_eventtypename || 'Hospital event',
+        badge: formattedChoice(e, 'dma_severitylevel', severityOptions, ''),
+        fields: [['Time', formatDate(e.dma_eventlogtimestamp || e.dma_eventtime)], ['Description', text(e.dma_incidentdescription, 'Not recorded')], ['Immediate action', text(e.dma_immediateactionstaken, 'Not recorded')]],
+      })),
+    },
+    {
+      heading: 'Administrative issues', note: `${bundle.admin.length} record${bundle.admin.length === 1 ? '' : 's'}`, empty: 'No administrative issues are attached to this handover.',
+      records: bundle.admin.map((x: any) => ({
+        title: x.dma_IssueID?.dma_name || x.dma_issueidname || x.dma_name || 'Administrative issue',
+        badge: formattedChoice(x, 'dma_resolutionstatus', resolutionOptions, ''),
+        fields: [['Description', text(x.dma_description, 'Not recorded')], ['Action taken', text(x.dma_actiontaken, 'Not recorded')], ['Pending details', text(x.dma_pendingissues)]],
+      })),
+    },
+    {
+      heading: 'Operations', note: `${bundle.ops.length} record${bundle.ops.length === 1 ? '' : 's'}`, empty: 'No operations outages are attached to this handover.',
+      records: bundle.ops.map((x: any) => ({
+        title: x.dma_name || `${formattedChoice(x, 'dma_serviceaffected', serviceAffectedOptions, 'Service')} - ${formattedChoice(x, 'dma_typeofissue', opsIssueOptions, 'Issue')}`,
+        badge: formattedChoice(x, 'dma_resolutionstatus', resolutionOptions, ''),
+        fields: [
+          ['Functionality', formattedChoice(x, 'dma_servicefunctionality', serviceFunctionalityOptions, 'Not recorded')],
+          ['Service affected', formattedChoice(x, 'dma_serviceaffected', serviceAffectedOptions, 'Not recorded')],
+          ['Issue type', formattedChoice(x, 'dma_typeofissue', opsIssueOptions, 'Not recorded')],
+          ['Description', text(x.dma_descriptionofissue, 'Not recorded')],
+          ['Pending details', text(x.dma_pendingissues)],
+        ],
+      })),
+    },
+  )
+  const experience = bundle.experience[0]
+  sections.push(experience ? {
+    heading: 'Patient experience',
+    fields: [
+      ['Escalated complaints', num(experience.dma_escalatedcomplaints)],
+      ['Escalated OVRs', num(experience.dma_escalatedovrs)],
+      ['Government / regulatory visits', formattedChoice(experience, 'dma_governmentalregulatoryvisits', governmentVisitOptions, 'No')],
+      ['Complaint summary', text(experience.dma_summaryofnewongoingcomplaints)],
+      ['OVR summary', text(experience.dma_summaryofnewovrs)],
+      ['Authority findings', text(experience.dma_authoritynamefindingssummary)],
+    ],
+  } : { heading: 'Patient experience', records: [], empty: 'No patient experience records are attached to this handover.' })
+
+  return {
+    // File name: the report's own name, safe for Windows paths.
+    fileName: `${name} - Handover Report`.replace(/[\\/:*?"<>|]+/g, '-'),
+    title: name,
+    subtitle: `${bu} · ${shift} shift · ${formatDate(r.dma_reportdate)}`,
+    meta: [
+      ['Business unit', bu], ['Shift', shift],
+      ['Report date', formatDate(r.dma_reportdate)], ['Duty manager', displayName(r)],
+      ['Report state', r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted'], ['Acknowledged', acknowledged],
+    ],
+    counts: [
+      ['Hospital events', String(bundle.events.length)], ['Administrative issues', String(bundle.admin.length)],
+      ['Operations', String(bundle.ops.length)], ['DAMA cases', String(bundle.flowEntries.length)],
+    ],
+    sections,
+  }
+}
+
+// A titled cluster of related report values (e.g. "Inbound", "Theatre flow").
+function ReportGroup({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="report-group">
+    <h4>{title}</h4>
+    <div className="report-group-grid">{children}</div>
+  </section>
 }
 
 function ReportMetric({ label, value, wide }: { label: string; value: React.ReactNode; wide?: boolean }) {
@@ -2067,12 +2886,66 @@ function formattedChoice(row: any, field: string, options: [string, string][], f
   return row?.[`${field}@OData.Community.Display.V1.FormattedValue`] || row?.[`${field}name`] || reportChoiceLabel(options, row?.[field], fallback)
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>
+// Dataverse memo columns behind these notes hold 2000 characters (early-discharge reason: 300).
+const TEXT_LIMIT = 2000
+
+// Textarea that stops at the column limit, shows a live counter and a friendly note once the limit is hit.
+// `error` (a popup's save-time message) is shown on the counter line, right under the box.
+function TextArea({ maxLength = TEXT_LIMIT, placeholder, value, error, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string; error?: string }) {
+  const length = String(value || '').length
+  const atLimit = length >= maxLength
+  const nearLimit = !atLimit && length >= maxLength * 0.9
+  const hint = `Up to ${maxLength.toLocaleString()} characters`
+  // Divs, not spans: `.field > span` is the label style and would squash this wrapper.
+  return <div className="textarea-wrap">
+    <textarea {...props} value={value} maxLength={maxLength} aria-invalid={error ? true : undefined} placeholder={placeholder ? `${placeholder} (${hint.toLowerCase()})` : hint} />
+    <div className={`textarea-meta${error ? ' has-error' : atLimit ? ' at-limit' : nearLimit ? ' near-limit' : ''}`} aria-live="polite">
+      <div className="textarea-note" role={error ? 'alert' : undefined}>{error || (atLimit ? `You've reached the ${maxLength.toLocaleString()}-character limit. Shorten the text to add more.` : nearLimit ? `Almost at the limit - ${(maxLength - length).toLocaleString()} characters left.` : '')}</div>
+      <div className="textarea-count">{length.toLocaleString()} / {maxLength.toLocaleString()}</div>
+    </div>
+  </div>
 }
 
-function SelectField({ label, value, options, placeholder, onChange }: { label: string; value: string; options: [string, string][]; placeholder?: string; onChange: (value: any) => void }) {
-  return <Field label={label}><select value={value} onChange={(e) => onChange(e.target.value)}>{placeholder && <option value="" disabled hidden>{placeholder}</option>}{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></Field>
+// Renders a label, colouring its required marker ("Name *") red.
+function LabelText({ text }: { text: string }) {
+  const match = text.match(/^(.*?)\s*\*\s*$/)
+  if (!match) return <>{text}</>
+  return <>{match[1]} <span className="req-mark" aria-hidden="true">*</span></>
+}
+
+// `required` is the validate() label for this field; it is highlighted once a submit has been attempted.
+// `error` is a popup's own save-time message, shown as text under the input.
+function Field({ label, required, error, children }: { label: string; required?: string; error?: string; children: React.ReactNode }) {
+  const validation = useContext(ValidationContext)
+  const hasError = Boolean(error) || Boolean(required && validation.show && validation.missing.includes(required))
+  // A TextArea child shows the error on its own counter line; other inputs get it right underneath.
+  const parts = Children.toArray(children)
+  const textAreaIndex = error ? parts.findIndex((child) => isValidElement(child) && child.type === TextArea) : -1
+  const content = textAreaIndex >= 0 ? parts.map((child, index) => index === textAreaIndex && isValidElement<{ error?: string }>(child) ? cloneElement(child, { error }) : child) : children
+  return <label className={`field${hasError ? ' has-error' : ''}`}><span><LabelText text={label} /></span>{content}{textAreaIndex < 0 && <FieldError message={error} />}</label>
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null
+  return <em className="field-error" role="alert">{message}</em>
+}
+
+const REQUIRED = 'This field is required.'
+
+// Popup validation: errors appear only after the first save attempt, then update live as fields are filled.
+function useSaveErrors<T>(validate: (value: T) => Record<string, string>, value: T) {
+  const [attempted, setAttempted] = useState(false)
+  const errors = attempted ? validate(value) : {}
+  return {
+    errors,
+    // Returns true when the record is valid and may be saved.
+    check: () => { setAttempted(true); return Object.keys(validate(value)).length === 0 },
+    reset: () => setAttempted(false),
+  }
+}
+
+function SelectField({ label, value, options, placeholder, required, error, onChange }: { label: string; value: string; options: [string, string][]; placeholder?: string; required?: string; error?: string; onChange: (value: any) => void }) {
+  return <Field label={label} required={required} error={error}><PulseSelect ariaLabel={label.replace(/\s*\*\s*$/, '')} placeholder={placeholder} value={value} onChange={onChange} options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))} /></Field>
 }
 
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
@@ -2197,8 +3070,12 @@ async function deleteCoverageShortages(reportId: string) {
   await Promise.all(rows.map((row) => Services.coverageShortages.delete(cleanId(row.dma_coverageshortageid))))
 }
 
+// User-facing text only; the full stack goes to the console for debugging.
 function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.stack || error.message
+  if (error instanceof Error) {
+    console.error(error)
+    return error.message
+  }
   try { return JSON.stringify(error) } catch { return String(error || 'Unknown error') }
 }
 
@@ -2246,8 +3123,9 @@ function getXrmUser(): HostUser {
   for (const candidate of candidates) {
     try {
       const user = candidate?.Xrm?.Utility?.getGlobalContext?.()?.userSettings
-      if (user?.userId || user?.userName) {
-        return { id: cleanId(user.userId || ''), name: user.userName || '', upn: '', aadObjectId: '' }
+      // The host's systemuserid belongs to the app's environment, not DT New, so only the name is reused.
+      if (user?.userName) {
+        return { id: '', name: user.userName, upn: '', aadObjectId: '' }
       }
     } catch {}
   }
@@ -2313,16 +3191,9 @@ function isAppPrincipalName(value: string) {
   return /\b(appagents|s2s|application|service principal|prod application)\b/i.test(value)
 }
 
-function getXrmWebApi() {
-  const candidates: any[] = []
-  try { candidates.push(window) } catch {}
-  try { candidates.push(window.parent) } catch {}
-  try { candidates.push(window.top) } catch {}
-  for (const candidate of candidates) {
-    try {
-      if (candidate?.Xrm?.WebApi) return candidate.Xrm.WebApi
-    } catch {}
-  }
+// Xrm.WebApi always talks to the hosting environment, but the data lives in DT New (see dataverse.ts).
+// Returning null routes every read/write through the cross-environment Services instead.
+function getXrmWebApi(): any {
   return null
 }
 
@@ -2594,13 +3465,12 @@ async function findInpatientByCodeViaXrm(code: string) {
   return patients[0] || null
 }
 
+// CalculateRollupField is a Dataverse function, and the cross-environment connector can only run
+// actions, so it cannot be forced from here. Dataverse's scheduled rollup job refreshes
+// crda1_countofpatients on its own.
 async function triggerEarlyDischargeRollup(masterId: string) {
-  const clean = cleanId(masterId)
-  if (!clean) return
-  await Services.calculateRollup.CalculateRollupField({
-    '@odata.type': 'Microsoft.Dynamics.CRM.and_earlydischarge',
-    and_earlydischargeid: clean,
-  }, 'crda1_countofpatients')
+  if (!cleanId(masterId)) return
+  console.info('Early discharge count (crda1_countofpatients) will refresh on the Dataverse rollup schedule.')
 }
 
 function toNumeric(value: any) {

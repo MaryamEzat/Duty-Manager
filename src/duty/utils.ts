@@ -1,4 +1,4 @@
-import type { AdminIssue, DamaEntry, DraftRecord, EarlyDischarge, EventItem, FormState, OpsIssue, Shift } from './data'
+import type { AdminIssue, DamaEntry, DraftRecord, EarlyDischarge, EventItem, FormState, OpsIssue, Shift, TabKey } from './data'
 import { businessUnits } from './data'
 
 export function toLocalInput(date: Date) {
@@ -56,6 +56,19 @@ export function reportCode(form: FormState) {
   const date = form.reportDate ? new Date(form.reportDate) : new Date()
   const shiftCode = form.shift === 'Morning' ? 'M' : form.shift === 'Evening' ? 'E' : 'N'
   return `${shiftCode}-${bu}-${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+}
+
+type HandoverKey = Pick<FormState, 'dmName' | 'dmUserId' | 'businessUnit' | 'shift' | 'reportDate'>
+
+// Two drafts are the same handover when the duty manager, business unit, shift and calendar day all match.
+export function sameHandover(a: HandoverKey, b: HandoverKey) {
+  const sameManager = a.dmUserId && b.dmUserId
+    ? cleanId(a.dmUserId) === cleanId(b.dmUserId)
+    : (a.dmName || '').trim().toLowerCase() === (b.dmName || '').trim().toLowerCase()
+  return sameManager
+    && String(a.businessUnit) === String(b.businessUnit)
+    && a.shift === b.shift
+    && String(a.reportDate || '').slice(0, 10) === String(b.reportDate || '').slice(0, 10)
 }
 
 export function getDrafts() {
@@ -128,6 +141,17 @@ export function validate(form: FormState, events: EventItem[], adminIssues: Admi
   })
   const uniqueMissing = Array.from(new Set(missing))
   return { ok: uniqueMissing.length === 0, missing: uniqueMissing }
+}
+
+// Maps a validate() field label to the report page where it is entered.
+export function missingFieldTab(field: string): TabKey {
+  if (['Duty Manager', 'Business Unit', 'Report Date', 'Shift'].includes(field)) return 'general'
+  if (field.startsWith('Event ')) return 'events'
+  if (field.startsWith('Admin Issue ')) return 'admin'
+  if (field.startsWith('Ops Issue ')) return 'ops'
+  if (['Summary of Complaints', 'Summary of OVRs', 'Authority Name & Findings Summary'].includes(field)) return 'experience'
+  if (['Hot Issues Summary', 'Night Meeting Summary'].includes(field)) return 'summary'
+  return 'flow'
 }
 
 export function fallbackAlerts() {
@@ -215,7 +239,8 @@ export function shortTime(value?: string) {
 }
 
 export function displayName(row: any) {
-  return row?.['_dma_dutymanager_value@OData.Community.Display.V1.FormattedValue'] || row?.dma_DutyManager?.fullname || row?.dma_dutymanagername || row?.createdbyname || row?.owneridname || row?.dma_name || 'N/A'
+  // No fallback to dma_name: that is the report code (e.g. E-AMH-0910), not a person.
+  return row?.['_dma_dutymanager_value@OData.Community.Display.V1.FormattedValue'] || row?.dma_DutyManager?.fullname || row?.dma_dutymanagername || row?.createdbyname || row?.owneridname || 'Not recorded'
 }
 
 function migrateLegacyDraft() {

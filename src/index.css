@@ -15,7 +15,8 @@
 html,
 body {
   width: 100%;
-  min-width: 320px;
+  /* No minimum: Power Apps' narrow preview frames can be under 320px, which forced sideways scrolling. */
+  min-width: 0;
   min-height: 100vh;
   margin: 0;
 }

@@ -6780,3 +6780,233 @@ textarea {
 .top .alert-button {
   color: var(--text-primary);
 }
+
+/* Required-field feedback shown after a submit attempt. */
+.field .field-error {
+  display: block;
+  margin-top: -2px;
+  color: #b3261e;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: #d9534f;
+  background: #fffafa;
+}
+
+.page-missing-banner {
+  margin: 14px 0 0;
+  padding: 12px 14px 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #efb4ad;
+  border-left: 4px solid #b3261e;
+  border-radius: 10px;
+  background: #fff3f1;
+  color: #9f2d22;
+}
+
+.page-missing-banner strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.summary-missing-banner {
+  margin: 18px 0 0;
+}
+
+.missing-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.missing-chip-list b {
+  padding: 3px 10px;
+  border: 1px solid #efb4ad;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.summary-missing-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-missing-group {
+  display: grid;
+  grid-template-columns: 200px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #f3d2cd;
+}
+
+.summary-missing-group > span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.page-missing-banner .btn.small {
+  white-space: nowrap;
+}
+
+.summary-missing-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ready-line.is-complete b {
+  color: #2e7d4f;
+}
+
+.ready-line-link {
+  border: 0;
+  background: transparent;
+  color: #b3261e;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.summary-submit-bar {
+  margin-top: 18px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e4c2a0;
+  border-radius: 12px;
+  background: #fff8f1;
+}
+
+.summary-submit-bar small {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.summary-submit-bar p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.btn.summary-submit-btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 28px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 6px 14px rgba(140, 82, 40, .18);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.btn.summary-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(140, 82, 40, .24);
+}
+
+@media (max-width: 760px) {
+  .summary-missing-group { grid-template-columns: 1fr; }
+  .summary-missing-group .btn.small { justify-self: start; }
+  .summary-submit-bar { flex-direction: column; align-items: stretch; }
+  .btn.summary-submit-btn { width: 100%; }
+}
+
+/* Rows and cards holding missing required fields after a submit attempt. */
+.has-missing {
+  position: relative;
+  border: 1px solid #d9534f !important;
+  border-left: 4px solid #b3261e !important;
+  background: #fff3f1 !important;
+  box-shadow: 0 0 0 3px rgba(217, 83, 79, .12);
+}
+
+.has-missing strong,
+.has-missing h3 {
+  color: #9f2d22;
+}
+
+.retention-summary-item.has-missing .btn.small,
+.has-missing .row-actions .btn.small:not(.danger),
+.retention-row.has-missing .btn.small {
+  border-color: #b3261e;
+  color: #b3261e;
+}
+
+.missing-chip {
+  padding: 3px 10px;
+  border: 1px solid #efb4ad;
+  border-radius: 999px;
+  background: #fff;
+  color: #9f2d22;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.missing-chip:hover {
+  border-color: #b3261e;
+  background: #b3261e;
+  color: #fff;
+}
+/* Character-limited textareas: counter + friendly limit note. */
+.textarea-wrap {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.textarea-wrap textarea {
+  width: 100%;
+}
+
+.textarea-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.textarea-meta .textarea-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.textarea-meta.near-limit {
+  color: #a86412;
+}
+
+.textarea-meta.at-limit {
+  color: #b3261e;
+}
+
+.textarea-meta.at-limit .textarea-note {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fff3f1;
+}

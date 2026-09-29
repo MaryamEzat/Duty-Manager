@@ -27,6 +27,7 @@ export * as Dma_patientflowsummariesModel from './models/Dma_patientflowsummarie
 export * as Hx_categoriesModel from './models/Hx_categoriesModel';
 export * as Hx_subcategoriesModel from './models/Hx_subcategoriesModel';
 export * as Ipd_patientsModel from './models/Ipd_patientsModel';
+export * as MicrosoftDataverseModel from './models/MicrosoftDataverseModel';
 export * as Opd_ksapatientsesModel from './models/Opd_ksapatientsesModel';
 export * as Opd_patientsModel from './models/Opd_patientsModel';
 export * as SystemusersModel from './models/SystemusersModel';
@@ -54,6 +55,7 @@ export * from './services/Dma_patientflowsummariesService';
 export * from './services/Hx_categoriesService';
 export * from './services/Hx_subcategoriesService';
 export * from './services/Ipd_patientsService';
+export * from './services/MicrosoftDataverseService';
 export * from './services/Opd_ksapatientsesService';
 export * from './services/Opd_patientsService';
 export * from './services/SystemusersService';

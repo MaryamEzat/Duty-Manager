@@ -8,6 +8,7 @@ import {
 import { createDataverseClient, PulseNavigation } from 'pulse-shared-navigation'
 import { MicrosoftDataverseService } from '../generated/services/MicrosoftDataverseService'
 import { downloadReportPdf, type PdfField, type PdfReport, type PdfSection } from './reportPdf'
+import { isRecoverableDraft, isSubmittedReport, restoreDraft } from './drafts'
 import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, missingFieldTab, reportCode, sameHandover, shortDate, shortTime, unwrap, validate } from './utils'
 
 // Pulse is the container for all apps: the shared Pulse navigation opens from the "Pulse Apps" button at
@@ -495,6 +496,7 @@ export function DutyManager() {
   const [pdfOnOpen, setPdfOnOpen] = useState(false)
   const [pulseOpen, setPulseOpen] = useState(false)
   const autosaveInFlight = useRef(false)
+  const submittedReportIds = useRef(new Set<string>())
 
   const discharges = form.discharges
   const dutyManagerOptions = useMemo(() => Array.from(new Set(reports.map(displayName).filter((name) => name && name !== 'N/A'))).sort(), [reports])
@@ -610,8 +612,38 @@ export function DutyManager() {
     }
   }
 
-  async function loadHomeReports() {
+  async function loadPersistedDrafts() {
+    try {
+      const rows = list(await Services.reports.getAll({
+        filter: "statecode eq 0 and (dma_reportstatus eq 778000001 or (dma_reportstatus eq 778000000 and dma_hotissues eq 'Draft Report initiated'))",
+        orderBy: ['createdon desc'],
+      } as any))
+      let failed = 0
+      for (const row of rows.filter(isRecoverableDraft)) {
+        const id = cleanId(row.dma_handoverreportid)
+        if (getDrafts().some((draft) => cleanId(draft.reportId) === id)) continue
+        try {
+          const [bundle, shortages] = await Promise.all([retrieveDraftBundle(id), coverageShortageRows(id)])
+          if (!isRecoverableDraft(bundle.report)) continue
+          const draft = restoreDraft(bundle, initialForm(), shortages)
+          if (!getDrafts().some((item) => cleanId(item.reportId) === id)) {
+            localStorage.setItem(`dm_handover_draft_${draft.draftId}`, JSON.stringify(draft))
+          }
+        } catch (error) {
+          failed += 1
+          console.warn('Could not restore draft', id, error)
+        }
+      }
+      if (failed) setMessage('Some saved drafts could not be loaded. Refresh to retry.')
+    } catch (error) {
+      console.warn('Dataverse draft lookup failed', error)
+      setMessage('Could not load saved drafts from Dataverse. Local drafts are still available.')
+    }
     setDrafts(getDrafts())
+  }
+
+  async function loadHomeReports() {
+    await loadPersistedDrafts()
     const filter = reportFilter !== 'all' ? `dma_businessunit eq ${reportFilter}` : undefined
 
     try {
@@ -737,6 +769,7 @@ export function DutyManager() {
   }
 
   function writeDraft(snapshot: { form: FormState; draftId: string; reportId: string; flowSummaryId: string; experienceId?: string; events: EventItem[]; adminIssues: AdminIssue[]; opsIssues: OpsIssue[]; damaEntries: DamaEntry[]; earlyDischarges: EarlyDischarge[] }, refresh = true) {
+    if (submittedReportIds.current.has(cleanId(snapshot.reportId))) return
     const draft: DraftRecord = { ...snapshot.form, draftId: snapshot.draftId, reportId: snapshot.reportId, flowSummaryId: snapshot.flowSummaryId, experienceId: snapshot.experienceId, events: snapshot.events, adminIssues: snapshot.adminIssues, opsIssues: snapshot.opsIssues, damaEntries: snapshot.damaEntries, earlyDischarges: snapshot.earlyDischarges, timestamp: new Date().toLocaleString() }
     localStorage.setItem(`dm_handover_draft_${snapshot.draftId}`, JSON.stringify(draft))
     if (refresh) setDrafts(getDrafts())
@@ -755,7 +788,27 @@ export function DutyManager() {
     if (nextView === 'home') loadHomeReports()
   }
   // Opens a draft, optionally straight on a given report page (e.g. from a Current shift item).
-  function openDraft(draft: DraftRecord, startTab: TabKey = 'general') {
+  async function openDraft(draft: DraftRecord, startTab: TabKey = 'general') {
+    if (draft.reportId) {
+      try {
+        const row = unwrap<any>(await Services.reports.get(cleanId(draft.reportId)))
+        if (!isRecoverableDraft(row)) {
+          if (isSubmittedReport(row)) {
+            localStorage.removeItem(`dm_handover_draft_${draft.draftId}`)
+            setDrafts(getDrafts())
+            setMessage('This report has already been submitted.')
+            await openReport(draft.reportId)
+          } else setMessage('This report is no longer an active draft.')
+          return
+        }
+        if (Number(row.dma_reportstatus) !== 778000001) {
+          await Services.reports.update(cleanId(draft.reportId), { dma_reportstatus: 778000001, dma_dmacknowledgmenttimestamp: null })
+        }
+      } catch (error) {
+        setMessage(`Could not reopen draft: ${errorMessage(error)}`)
+        return
+      }
+    }
     setForm({ ...initialForm(), ...draft })
     setDraftId(draft.draftId)
     setReportId(draft.reportId || '')
@@ -1047,6 +1100,7 @@ console.log('completion', saveFlow)
         }
       }
       await Services.reports.update(cleanId(id), { dma_reportstatus: 778000002, statecode: 0, statuscode: 1 } as any)
+      submittedReportIds.current.add(cleanId(id))
       if (draftId) {
         localStorage.removeItem(`dm_handover_draft_${draftId}`)
         setDrafts(getDrafts())
@@ -1100,13 +1154,14 @@ console.log('completion', saveFlow)
     loadHomeReports().catch(() => undefined)
   }
 
-  // Report viewer's Acknowledge: the viewer stays open and switches to "Acknowledged".
+  // Close the acknowledged report only after Dataverse confirms success.
   async function acknowledgeReport() {
     const id = selectedReport?.report?.dma_handoverreportid
     if (!id) return
     try {
       await acknowledgeHandover(id)
       setMessage('Report acknowledged.')
+      setSelectedReport((current) => current && cleanId(current.report?.dma_handoverreportid) === cleanId(id) ? null : current)
     } catch {
       setMessage('Could not acknowledge the report.')
     }
@@ -3079,11 +3134,6 @@ function errorMessage(error: unknown) {
   try { return JSON.stringify(error) } catch { return String(error || 'Unknown error') }
 }
 
-function isSubmittedReport(row: any) {
-  const status = Number(row?.dma_reportstatus)
-  return status === 778000002 || status === 778000000
-}
-
 function resultId(result: unknown, primaryKey: string) {
   const record = unwrap<any>(result)
   const id = cleanId(record?.[primaryKey] || record?.id)
@@ -3213,7 +3263,7 @@ async function retrievePreviousSameBuReport(form: FormState, currentReportId?: s
   const cleanCurrentId = cleanId(currentReportId || '')
   const beforeFilter = Number.isNaN(currentDate.getTime()) ? '' : ` and dma_reportdate lt ${currentDate.toISOString()}`
   const excludeCurrent = cleanCurrentId ? ` and dma_handoverreportid ne ${cleanCurrentId}` : ''
-  const filter = `dma_businessunit eq ${form.businessUnit}${beforeFilter}${excludeCurrent}`
+  const filter = `statecode eq 0 and (dma_reportstatus eq 778000002 or (dma_reportstatus eq 778000000 and (dma_hotissues ne 'Draft Report initiated' or dma_hotissues eq null))) and dma_businessunit eq ${form.businessUnit}${beforeFilter}${excludeCurrent}`
 
   if (api) {
     const query = `?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_shifttype,createdon,dma_businessunit,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$filter=${filter}&$orderby=dma_reportdate desc,createdon desc&$top=1`
@@ -3293,6 +3343,8 @@ async function retrieveCarryForwardItems(previousReportId: string) {
 }
 
 async function acknowledgeHandoverReport(id: string, timestamp: string) {
+  const current = unwrap<any>(await Services.reports.get(cleanId(id)))
+  if (!isSubmittedReport(current)) throw new Error('A draft cannot be acknowledged before final submission.')
   const payload = { dma_dmacknowledgmenttimestamp: timestamp, dma_reportstatus: 778000000, statecode: 0, statuscode: 1 } as any
   const api = getXrmWebApi()
   if (api) {
@@ -3300,6 +3352,20 @@ async function acknowledgeHandoverReport(id: string, timestamp: string) {
     return
   }
   await Services.reports.update(cleanId(id), payload)
+}
+
+async function retrieveDraftBundle(id: string): Promise<ReportBundle> {
+  const clean = cleanId(id)
+  const filter = `_dma_reportid_value eq ${clean}`
+  const [report, flow, events, admin, ops, experience] = await Promise.all([
+    Services.reports.get(clean), Services.flow.getAll({ filter }), Services.events.getAll({ filter }),
+    Services.adminEntries.getAll({ filter }), Services.ops.getAll({ filter }), Services.experience.getAll({ filter }),
+  ])
+  const flowRows = list(flow)
+  const flowId = cleanId(flowRows[0]?.dma_patientflowsummaryid || '')
+  // Failed child reads must not create an empty editable copy of saved data.
+  const flowEntries = flowId ? list(await Services.flowEntries.getAll({ filter: `_dma_patientflow_value eq ${flowId}` })) : []
+  return { report: unwrap(report), flow: flowRows, flowEntries, events: list(events), admin: list(admin), ops: list(ops), experience: list(experience) }
 }
 
 async function retrieveReportBundleViaXrm(id: string): Promise<ReportBundle | null> {

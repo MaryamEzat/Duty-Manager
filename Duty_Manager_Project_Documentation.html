@@ -1,0 +1,682 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@page{size:letter;margin:.7in .72in .68in}.cover{page-break-after:always;text-align:center;padding-top:1.15in}.cover h1{font:700 30pt Aptos;color:#000;margin:0 0 8pt}.cover h2{font:400 16pt Aptos;color:#4a5c49;margin:0 0 28pt}.cover table{width:90%;margin:36pt auto 24pt;text-align:left}.contents{page-break-after:always}.contents-grid{columns:2;column-gap:30pt}.contents-grid p{break-inside:avoid;margin:0 0 7pt}body{font:9.5pt Aptos,Arial,sans-serif;color:#111;line-height:1.14}h1{font:700 17pt "Aptos Display",Arial;color:#000;margin:13pt 0 6pt;page-break-after:avoid}h2{font:700 13pt "Aptos Display",Arial;color:#000;margin:10pt 0 4pt;page-break-after:avoid}h3{font:700 11pt Aptos,Arial;color:#000;margin:8pt 0 3pt;page-break-after:avoid}p{margin:0 0 5pt}ul,ol{margin:2pt 0 6pt 20pt;padding:0}li{margin-bottom:2pt}table{border-collapse:collapse;width:100%;margin:5pt 0 9pt;font-size:8pt;page-break-inside:auto}thead{display:table-header-group}tr{page-break-inside:avoid}th{background:#2e372d;color:#fff;font-weight:700;text-align:left;border:1px solid #d9d9d9;padding:4pt}td{border:1px solid #d9d9d9;padding:4pt;vertical-align:top}tbody tr:nth-child(even){background:#f7f5ef}code{font-family:Consolas;font-size:8.5pt;background:#f2f2f2}.check{margin-left:12pt}strong{font-weight:700}a{color:#2e5e45;text-decoration:none}.status{font-weight:700;color:#2e5e45}
+</style></head><body>
+<div class="cover"><h1>DUTY MANAGER</h1><h2>Complete Project Documentation<br>and Handover Report</h2><table><tr><th>Document date</th><td>13 October 2026</td></tr><tr><th>Application status</th><td>Development completed</td></tr><tr><th>Primary outstanding item</th><td>Final report structure confirmation</td></tr><tr><th>Source of truth</th><td>Current React/TypeScript repository</td></tr><tr><th>Repository</th><td>github.com/MaryamEzat/Duty-Manager</td></tr></table><p>Prepared for project sponsors, operational owners, Power Platform administrators,<br>support teams, and future development teams.</p></div>
+<div class="contents"><h1>Contents</h1><div class="contents-grid"><p>1. Executive Summary</p><p>2. Project Overview</p><p>3. Business Objectives</p><p>4. Current Project Status</p><p>5. Functional Scope</p><p>6. Solution Architecture</p><p>7. Technology Stack</p><p>8. GitHub Repository and Source Control</p><p>9. Application Structure</p><p>10. Application Modules and Screens</p><p>11. Dataverse Data Model</p><p>12. Data Sources and Integrations</p><p>13. Automated KPIs and Calculations</p><p>14. Business Logic and Lifecycle Rules</p><p>15. Business Unit and Country Logic</p><p>16. User Workflows</p><p>17. Automation and Scheduled Processes</p><p>18. Reporting and Export</p><p>19. Security and Access Control</p><p>20. Deployment and Environment Configuration</p><p>21. Completed Work</p><p>22. Current Outstanding Item</p><p>23. Dependencies, Risks, and Limitations</p><p>24. Recommended Next Steps</p><p>25. Management Handover Summary</p><p>Appendices A–D</p></div></div>
+<h1>Document purpose</h1>
+<p>This report provides a complete functional, technical, operational, and management handover for the Duty Manager application. It reflects the current source code, generated Dataverse contracts, configuration, Git history, and validation results available in the project repository. Where an external configuration or business decision cannot be proved from the repository, it is marked <strong>Requires confirmation</strong>.</p>
+<h1>1. Executive Summary</h1>
+<p>The Duty Manager application is a Microsoft Power Apps Code App built with React and TypeScript. It gives hospital duty managers a structured process for starting, completing, submitting, reviewing, and acknowledging operational handover reports. The application brings together patient flow, hospital events, administrative issues, operational disruptions, patient experience, night-shift discharge planning, alerts, and management reporting in one workflow.</p>
+<p>Development is complete against the currently understood requirements. The current implementation supports resumable drafts, section-level persistence, validation before submission, submitted-report review, acknowledgment, PDF generation, dashboard analysis, and CSV export. Draft reports remain editable until final submission and may be opened and closed repeatedly. A submitted report can be acknowledged only after it has been successfully persisted as submitted; after a successful acknowledgment, the viewer closes automatically.</p>
+<p>The only primary business item still outstanding is confirmation of the final report structure and reporting expectations. This includes the required management report layout, export frequency, required fields, selected-filter behavior, and whether CSV, Excel, PDF, or a combination is required. Until these points are confirmed, the application’s current PDF and dashboard CSV should be treated as implemented working outputs rather than final business-approved report formats.</p>
+<p>The current React/TypeScript source in this repository is the application source of truth. Older static HTML, JavaScript, and CSS files remain in the repository as historical or reference material and are not the active runtime. The application builds successfully, and the six targeted draft-lifecycle tests pass. The repository lint command currently reports pre-existing issues across active, generated, and backup files and is not a clean release gate.</p>
+<h1>2. Project Overview</h1>
+<p>The application supports the transfer of operational accountability between hospital duty managers across shifts. Each handover is associated with a report date, hospital business unit, shift, and duty manager. The report records operational status and outstanding items so that the incoming manager can understand current conditions and acknowledge receipt.</p>
+<p>The active business units are:</p>
+<table><thead><tr><th>Code</th><th>Business unit</th><th>Country routing</th></tr></thead><tbody>
+<tr><td>AMH</td><td>AMH</td><td>Egypt</td></tr>
+<tr><td>ASH</td><td>ASH</td><td>Egypt</td></tr>
+<tr><td>SMH</td><td>SMH</td><td>Egypt</td></tr>
+<tr><td>AHJ</td><td>AHJ</td><td>Saudi Arabia</td></tr>
+</tbody></table>
+<p>The system uses AHJ as the Saudi Arabia business unit. All other active business units use Egypt data sources. This behavior is explicitly implemented in the patient lookup logic.</p>
+<p>The application is designed for three shifts: Morning, Evening, and Night. The current application derives the initial shift using 07:00–15:00 for Morning, 15:00–23:00 for Evening, and 23:00–07:00 for Night. Business notes supplied separately refer to 08:00–14:00, 14:00–20:00, and 20:00–08:00. The authoritative shift schedule therefore <strong>Requires confirmation</strong>.</p>
+<h1>3. Business Objectives</h1>
+<p>The application addresses the following objectives:</p>
+<ul>
+<li>Standardize duty-manager handovers across hospital business units and shifts.</li>
+<li>Preserve incomplete work as a draft until the duty manager explicitly submits it.</li>
+<li>Allow a draft to be opened, closed, and continued without changing its lifecycle state.</li>
+<li>Prevent duplicate handovers for the same manager, business unit, shift, and date.</li>
+<li>Capture structured operational data rather than relying on unstructured messages.</li>
+<li>Highlight major incidents, pending issues, hot issues, staffing gaps, and patient-flow pressure.</li>
+<li>Require the previous handover to be acknowledged before the next handover is submitted.</li>
+<li>Provide a formal acknowledgment timestamp and measurable acknowledgment turnaround.</li>
+<li>Carry unresolved administrative and operational items into the next handover when accepted.</li>
+<li>Support operational review through dashboard metrics, filters, PDF reports, and export.</li>
+<li>Use country-appropriate patient sources for Egypt and Saudi Arabia.</li>
+<li>Support night-shift early-discharge planning and linkage to discharge records.</li>
+</ul>
+<h1>4. Current Project Status</h1>
+<table><thead><tr><th>Area</th><th>Status</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Core application development</td><td>Complete</td><td>Active React/TypeScript implementation is available in <code>src/</code>.</td></tr>
+<tr><td>Draft lifecycle</td><td>Complete</td><td>Drafts remain open until final submission and can be resumed repeatedly.</td></tr>
+<tr><td>Submission workflow</td><td>Complete</td><td>Includes validation, persistence, duplicate prevention, and autosave protection.</td></tr>
+<tr><td>Review and acknowledgment</td><td>Complete</td><td>Acknowledgment is restricted to submitted reports and the viewer closes after successful persistence.</td></tr>
+<tr><td>Dashboard</td><td>Complete</td><td>Filters, operational indicators, issue views, refresh, and CSV export are implemented.</td></tr>
+<tr><td>PDF report</td><td>Complete</td><td>A4 handover report generation is implemented.</td></tr>
+<tr><td>Dataverse integration</td><td>Complete in code</td><td>Live permissions, connections, and environment ownership require environment verification.</td></tr>
+<tr><td>Automated testing</td><td>Passed</td><td>Six targeted draft-lifecycle tests pass.</td></tr>
+<tr><td>Production build</td><td>Passed</td><td>Vite production build completed successfully.</td></tr>
+<tr><td>Lint quality gate</td><td>Open</td><td>Current lint run reports 278 issues across active, generated, and backup files.</td></tr>
+<tr><td>Power Apps publishing</td><td>Blocked by access</td><td>The configured app returned <code>PowerAppsNoAccess</code> for the authenticated account.</td></tr>
+<tr><td>Final report structure</td><td><strong>Requires confirmation</strong></td><td>This is the primary remaining business decision.</td></tr>
+</tbody></table>
+<p>The repository also contains staged work that implements and tests the latest draft and acknowledgment requirements. These changes should be reviewed, committed, and published through the normal release process after environment access is confirmed.</p>
+<h1>5. Functional Scope</h1>
+<h2>5.1 Included scope</h2>
+<ul>
+<li>Duty-manager identity and business-unit selection.</li>
+<li>Start a new handover for a business unit and shift.</li>
+<li>Recover and continue an existing Dataverse draft.</li>
+<li>Local draft caching as a secondary resilience mechanism.</li>
+<li>General handover information and hot issues.</li>
+<li>Hospital events and incident details.</li>
+<li>Administrative issue tracking.</li>
+<li>Patient-flow, theatre, staffing, utilization, discharge, and DAMA information.</li>
+<li>Operational disruption and service-functionality tracking.</li>
+<li>Patient complaints, OVRs, government visits, findings, and actions.</li>
+<li>Night medical meeting and early-discharge planning.</li>
+<li>Summary review and validation before submission.</li>
+<li>Submitted report confirmation and report review.</li>
+<li>Previous-handover acknowledgment.</li>
+<li>Carry-forward of unresolved administrative and operational issues.</li>
+<li>Alerts display.</li>
+<li>Operations dashboard with filters and export.</li>
+<li>PDF report generation.</li>
+</ul>
+<h2>5.2 Excluded or unconfirmed scope</h2>
+<ul>
+<li>Final management-approved report layout and export specification.</li>
+<li>Confirmed daily, weekly, monthly, or custom-range export usage.</li>
+<li>Native <code>.xlsx</code> export; the current “Export Excel” control produces CSV.</li>
+<li>Power Automate flow definitions and ownership.</li>
+<li>Power Query or dataflow definitions.</li>
+<li>DotCare, SQL, or CPOE integration configuration.</li>
+<li>Confirmed upstream formulas that populate operational source tables.</li>
+<li>Environment security-role definitions and user access lists.</li>
+<li>A global country or business-unit preference stored across sessions; this is not implemented.</li>
+</ul>
+<p>Each item above <strong>Requires confirmation</strong> before it can be considered part of an approved production scope.</p>
+<h1>6. Solution Architecture</h1>
+<h2>6.1 Logical architecture</h2>
+<p>The solution uses the following runtime path:</p>
+<ol>
+<li>Microsoft Power Apps hosts the Code App.</li>
+<li>Vite loads the React entry point in src/main.tsx.</li>
+<li>src/App.tsx loads the Duty Manager application.</li>
+<li>React components manage the user interface, workflow state, validation, and navigation.</li>
+<li>The data layer calls generated Microsoft Dataverse service clients.</li>
+<li>The generated clients perform organization-specific CRUD operations against the target Dataverse environment.</li>
+<li>Dataverse stores parent handover reports, section records, lookups, patient references, alerts, and operational source data.</li>
+<li>Client-side PDF and CSV generators produce downloadable outputs.</li>
+</ol>
+<p>The active code deliberately routes reads and writes through the generated cross-environment Dataverse services. The helper named getXrmWebApi() returns no active Web API object, which prevents an accidental mixture of host-environment Web API calls and generated service calls.</p>
+<h2>6.2 Environment relationship</h2>
+<p>The Code App is configured in one Power Platform environment while the business data service points to a specific Dataverse organization URL. This is a cross-environment design and depends on the deployed connection reference, user authorization, and target Dataverse privileges.</p>
+<table><thead><tr><th>Component</th><th>Configured value</th></tr></thead><tbody>
+<tr><td>Power Apps application ID</td><td>bb72cb69-df81-4520-ad19-da8de18c6f49</td></tr>
+<tr><td>Power Platform environment ID</td><td>cd78a59b-e16f-e4aa-b0a1-8e450a70ed56</td></tr>
+<tr><td>App type</td><td>Code App</td></tr>
+<tr><td>Region</td><td>Production</td></tr>
+<tr><td>Build output</td><td>./dist</td></tr>
+<tr><td>Build entry point</td><td>index.html</td></tr>
+<tr><td>Dataverse connector</td><td>shared_commondataserviceforapps</td></tr>
+<tr><td>Authentication</td><td>OAuth</td></tr>
+<tr><td>Target business-data organization</td><td>https://org319b4ea9.crm4.dynamics.com</td></tr>
+</tbody></table>
+<p>The repository refers to a host organization and a separate business-data organization. The exact production ownership, service account, connection owner, and data-loss prevention policy <strong>Require confirmation</strong> in the Power Platform environment.</p>
+<h2>6.3 Architectural boundaries</h2>
+<p>The application contains client-side workflow and persistence logic. It does not contain server-side plug-ins, custom APIs, Power Automate packages, dataflows, or infrastructure-as-code definitions. Any automation that creates source data, alerts, or daily discharge masters exists outside this repository and <strong>Requires confirmation</strong>.</p>
+<h1>7. Technology Stack</h1>
+<table><thead><tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>Host</td><td>Microsoft Power Apps Code Apps</td><td>Enterprise application hosting</td></tr>
+<tr><td>Front end</td><td>React 19.2</td><td>Component-based user interface</td></tr>
+<tr><td>Language</td><td>TypeScript 5.9</td><td>Typed application and data logic</td></tr>
+<tr><td>Build tooling</td><td>Vite 7.2</td><td>Development and production bundling</td></tr>
+<tr><td>Power Apps SDK</td><td>@microsoft/power-apps 1.2.5</td><td>Code App and connector integration</td></tr>
+<tr><td>Vite integration</td><td>@microsoft/power-apps-vite 1.0.2</td><td>Power Apps build tooling</td></tr>
+<tr><td>Data platform</td><td>Microsoft Dataverse</td><td>Transactional and reference data</td></tr>
+<tr><td>Data clients</td><td>Generated Microsoft Dataverse services</td><td>Typed organization-specific CRUD</td></tr>
+<tr><td>PDF</td><td>jsPDF 4.2.1 and jsPDF-AutoTable 5.0.8</td><td>Handover PDF output</td></tr>
+<tr><td>Navigation</td><td>Pulse shared navigation 1.1.3</td><td>Shared application navigation</td></tr>
+<tr><td>Testing</td><td>Node test runner</td><td>Targeted lifecycle behavior tests</td></tr>
+<tr><td>Source control</td><td>Git and GitHub</td><td>Version history and collaboration</td></tr>
+</tbody></table>
+<p>No back-end application server is present in the repository. The browser-hosted application connects to Dataverse through the configured Power Apps connector.</p>
+<h1>8. GitHub Repository and Source Control</h1>
+<p>The configured repository is:</p>
+<p><strong>Repository:</strong> https://github.com/MaryamEzat/Duty-Manager  </p>
+<p><strong>Primary branch:</strong> main</p>
+<p>Recent repository history inspected for this handover includes:</p>
+<table><thead><tr><th>Commit</th><th>Date</th><th>Description</th></tr></thead><tbody>
+<tr><td>9ccbd23</td><td>29 September 2026</td><td>Update Duty Manager with recovered development changes</td></tr>
+<tr><td>9b5b96f</td><td>10 September 2026</td><td>Update Duty Manager filters and UI</td></tr>
+<tr><td>1c38c79</td><td>26 August 2026</td><td>First commit</td></tr>
+</tbody></table>
+<p>At the time of documentation, the working tree contains staged changes in:</p>
+<ul>
+<li>src/duty/DutyManager.tsx</li>
+<li>src/duty/drafts.ts</li>
+<li>tests/draft-lifecycle.test.mjs</li>
+</ul>
+<p>These changes implement the latest draft recovery, draft acknowledgment prevention, late-autosave protection, and post-acknowledgment viewer behavior. They add approximately 260 lines and remove 9 lines. They have not been altered by this documentation work.</p>
+<h2>8.1 Source-control handover guidance</h2>
+<ul>
+<li>Review and commit the staged lifecycle changes using a descriptive commit.</li>
+<li>Tag or record the exact commit promoted to each Power Platform environment.</li>
+<li>Keep generated Dataverse files synchronized with the target environment schema.</li>
+<li>Do not treat a GitHub push as a Power Apps deployment. Source control and Code App publishing are separate release steps.</li>
+<li>Remove or clearly archive obsolete static and backup files after stakeholder approval so future maintainers do not mistake them for the active runtime.</li>
+<li>Protect main with review and build checks if organizational policy permits.</li>
+</ul>
+<h1>9. Application Structure</h1>
+<h2>9.1 Active entry points</h2>
+<table><thead><tr><th>Path</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td>src/main.tsx</td><td>React bootstrap, error boundary, and lazy loading</td></tr>
+<tr><td>src/App.tsx</td><td>Loads global styles and mounts Duty Manager</td></tr>
+<tr><td>src/duty/DutyManager.tsx</td><td>Main application UI, navigation, workflow, validation, reporting, and orchestration</td></tr>
+<tr><td>src/duty/data.ts</td><td>Entity definitions, CRUD wrappers, queries, and mapping logic</td></tr>
+<tr><td>src/duty/dataverse.ts</td><td>Generated-service routing and Dataverse access boundary</td></tr>
+<tr><td>src/duty/drafts.ts</td><td>Draft reconstruction, lifecycle helpers, and submission protection</td></tr>
+<tr><td>src/generated/</td><td>Generated Dataverse models, metadata, and services</td></tr>
+<tr><td>tests/draft-lifecycle.test.mjs</td><td>Targeted lifecycle regression tests</td></tr>
+<tr><td>power.config.json</td><td>Power Apps Code App and connector configuration</td></tr>
+<tr><td>vite.config.ts</td><td>Vite build configuration</td></tr>
+</tbody></table>
+<h2>9.2 Legacy and reference material</h2>
+<p>The repository contains static pages/, js/, and css/ assets, including duplicates under public/. These files describe an earlier implementation approach and may still be useful for design or historical reference. They are not mounted by the current React application and must not be treated as the deployed source without explicit verification.</p>
+<p>Existing documents under docs/ also describe an earlier handoff state. They remain useful background, but the current code and this report supersede them where behavior differs.</p>
+<h2>9.3 Maintainability observations</h2>
+<p>The main DutyManager.tsx file currently contains a large amount of UI, state, validation, business workflow, persistence coordination, dashboard logic, and report generation. The application works, but future maintenance would benefit from separating screens, hooks, validators, repository services, and reporting modules. Such refactoring should be incremental and protected by lifecycle tests because the file contains tightly related operational behavior.</p>
+<h1>10. Application Modules and Screens</h1>
+<h2>10.1 Home</h2>
+<p>The Home screen is the operational starting point. It shows the current draft, readiness information, resumable drafts, delete actions, and recent submitted handovers. Recent reports can be filtered and sorted, then opened for review.</p>
+<p>Drafts are displayed as work in progress and should not appear as submitted handovers. Closing a draft returns the user to navigation without submitting or acknowledging it.</p>
+<h2>10.2 General information</h2>
+<p>Captures the report identity and general operational context, including report date, business unit, shift, duty manager, and hot issues. The report parent is created in Draft status when a shift is started.</p>
+<h2>10.3 Hospital events</h2>
+<p>Captures structured incidents with event type, event code, location or area, patient, description, actions, severity, and resolution status. Patient lookup behavior changes according to event type, code, business unit, and country routing.</p>
+<h2>10.4 Administrative issues</h2>
+<p>Captures administrative categories, issue details, status, and pending actions. Unresolved issues can be offered for carry-forward into the next handover.</p>
+<h2>10.5 Patient flow</h2>
+<p>Captures or displays:</p>
+<ul>
+<li>ER, OPD, and total admissions.</li>
+<li>Total, planned, and unplanned discharges.</li>
+<li>Delayed discharges and explanatory narrative.</li>
+<li>Prolonged ER admissions and explanatory narrative.</li>
+<li>Theatre totals, pre-operative, post-operative, postponed, and cancelled cases.</li>
+<li>DAMA cases for ER, inpatient, and closed cases.</li>
+<li>Retention results.</li>
+<li>Bed utilization for inpatient, ICU, CCU, PICU, NICU, cardiovascular, and stroke areas.</li>
+<li>Staffing adequacy, shortage categories, and shortage summary.</li>
+</ul>
+<p>Some headline counts are refreshed from the linked Patient Flow Summary record. Other fields remain user-entered. The exact ownership of each metric <strong>Requires confirmation</strong> with the data owners.</p>
+<h2>10.6 Operations</h2>
+<p>Captures service functionality, affected service, issue type, description, status, and pending action. Supported affected services include Laboratory, Radiology, IT, Facility, Pharmacy, and CSSD. Unresolved items can be carried forward.</p>
+<h2>10.7 Patient experience</h2>
+<p>Captures complaint totals and summaries, OVR totals and summaries, government-visit status, findings, and corrective actions.</p>
+<h2>10.8 Night shift and early discharge</h2>
+<p>For Night reports, the application supports medical-meeting status and summary plus next-day planned discharge details. It reads the daily Early Discharge master and associated patient rows, allows the duty manager to add an eligible inpatient, and creates a linked patient-discharge record.</p>
+<h2>10.9 Summary and submission</h2>
+<p>Presents the report for final review, runs cross-section validation, checks for an acknowledged prior handover, prevents duplicates, persists all sections, and marks the parent report Completed only when submission succeeds.</p>
+<h2>10.10 Submission confirmation</h2>
+<p>Confirms successful final submission and provides the user with a clear end state. Local draft state is removed after successful submission.</p>
+<h2>10.11 Report viewer and acknowledgment</h2>
+<p>Displays a submitted report for operational review and PDF generation. A submitted report may be acknowledged, which writes the acknowledgment timestamp and changes the status to Acknowledged. The viewer closes only after acknowledgment persistence succeeds. On persistence failure, it stays open so the user can retry.</p>
+<h2>10.12 Operations Dashboard</h2>
+<p>Provides date, shift, business-unit, and duty-manager filters; high-level performance signals; business-unit comparisons; an issue queue; refresh; links to related reporting; and export. Dashboard access is not restricted in application code and <strong>Requires confirmation</strong>.</p>
+<h2>10.13 Alerts</h2>
+<p>Displays alerts from Dataverse in a drawer. Alert creation, recipients, escalation rules, and lifecycle are outside this repository and <strong>Require confirmation</strong>.</p>
+<h1>11. Dataverse Data Model</h1>
+<h2>11.1 Core tables</h2>
+<table><thead><tr><th>Functional area</th><th>Dataverse entity set</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>Handover parent</td><td>dma_handoverreports</td><td>Report identity, status, date, BU, shift, manager, hot issues, acknowledgment</td></tr>
+<tr><td>Patient flow summary</td><td>dma_patientflowsummaries</td><td>Admissions, discharges, theatre, utilization, staffing, and narratives</td></tr>
+<tr><td>Patient experience</td><td>dma_patientexperiences</td><td>Complaints, OVRs, government visits, findings, and actions</td></tr>
+<tr><td>Operations</td><td>dma_opeartions</td><td>Operational service issues; spelling reflects the deployed schema</td></tr>
+<tr><td>Hospital events</td><td>dma_hospitalevents</td><td>Clinical and hospital incident records</td></tr>
+<tr><td>Administrative entries</td><td>dma_administrativeissueentries</td><td>Administrative issues and pending actions</td></tr>
+<tr><td>DAMA entries</td><td>dma_patientflowentries</td><td>ER, inpatient, and closed DAMA cases</td></tr>
+<tr><td>Alerts</td><td>dma_alerts</td><td>User-facing operational alerts</td></tr>
+<tr><td>Coverage shortages</td><td>dma_coverageshortages</td><td>Staffing shortage classifications</td></tr>
+<tr><td>Event types</td><td>dma_eventtypes</td><td>Event-type reference data</td></tr>
+<tr><td>Event codes</td><td>dma_eventcodes</td><td>Event-code reference data</td></tr>
+<tr><td>Administrative issues</td><td>dma_administrativeissues</td><td>Administrative category reference data</td></tr>
+<tr><td>Users</td><td>systemusers</td><td>Duty-manager identity lookup</td></tr>
+</tbody></table>
+<h2>11.2 Handover parent fields</h2>
+<p>Key active fields include:</p>
+<table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>dma_handoverreportid</td><td>Primary report GUID</td></tr>
+<tr><td>dma_name</td><td>Report name</td></tr>
+<tr><td>dma_reportdate</td><td>Operational report date</td></tr>
+<tr><td>dma_businessunit</td><td>Business-unit choice</td></tr>
+<tr><td>dma_shifttype</td><td>Shift choice</td></tr>
+<tr><td>dma_reportstatus</td><td>Draft, Completed, or Acknowledged</td></tr>
+<tr><td>dma_hotissues</td><td>Executive operational narrative</td></tr>
+<tr><td>dma_dmacknowledgmenttimestamp</td><td>Successful acknowledgment time</td></tr>
+<tr><td>dma_DutyManager</td><td>Lookup to system user</td></tr>
+<tr><td>dma_nightmedicalmeeting</td><td>Night medical-meeting status</td></tr>
+<tr><td>dma_nightmedicalmeetingsummary</td><td>Night medical-meeting narrative</td></tr>
+</tbody></table>
+<p>The generated schema also exposes night attendees, clinical decisions, administrative notes, regulatory details, a composed key, Daily Report, and Facility Capacity references. These fields are not actively used by the current UI and <strong>Require confirmation</strong> before future development relies on them.</p>
+<h2>11.3 Choice values</h2>
+<table><thead><tr><th>Choice</th><th>Label</th><th>Value</th></tr></thead><tbody>
+<tr><td>Report status</td><td>Acknowledged</td><td>778000000</td></tr>
+<tr><td>Report status</td><td>Draft</td><td>778000001</td></tr>
+<tr><td>Report status</td><td>Completed</td><td>778000002</td></tr>
+<tr><td>Shift</td><td>Morning</td><td>989230000</td></tr>
+<tr><td>Shift</td><td>Evening</td><td>989230001</td></tr>
+<tr><td>Shift</td><td>Night</td><td>989230002</td></tr>
+<tr><td>Severity</td><td>Low</td><td>778000000</td></tr>
+<tr><td>Severity</td><td>Moderate</td><td>778000001</td></tr>
+<tr><td>Severity</td><td>Major</td><td>778000002</td></tr>
+<tr><td>Resolution</td><td>Pending</td><td>778000000</td></tr>
+<tr><td>Resolution</td><td>Resolved</td><td>778000001</td></tr>
+<tr><td>Resolution</td><td>In Progress</td><td>778000002</td></tr>
+<tr><td>Staffing</td><td>Short</td><td>778000000</td></tr>
+<tr><td>Staffing</td><td>Adequate</td><td>778000001</td></tr>
+<tr><td>Government visit</td><td>Yes</td><td>999740000</td></tr>
+<tr><td>Government visit</td><td>No</td><td>999740001</td></tr>
+</tbody></table>
+<p>Operational functionality values are Partial Outage, Total Outage, and Fully Functional. Shortage types are Nursing, Medical, and Support Staff. Early Discharge masters use Draft and Submitted status values, while discharge types distinguish Early and Planned.</p>
+<h2>11.4 Patient and discharge source tables</h2>
+<table><thead><tr><th>Source</th><th>Entity set</th><th>Usage</th></tr></thead><tbody>
+<tr><td>Egypt ER visits</td><td>cr301_ervisitses</td><td>ER patient lookup</td></tr>
+<tr><td>Egypt inpatient</td><td>ipd_patients</td><td>Egypt inpatient lookup</td></tr>
+<tr><td>Egypt outpatient</td><td>opd_patients</td><td>Egypt outpatient lookup</td></tr>
+<tr><td>Saudi outpatient</td><td>opd_ksapatientses</td><td>AHJ outpatient lookup</td></tr>
+<tr><td>Saudi inpatient</td><td>and_inpatientlists</td><td>AHJ inpatient and early-discharge lookup</td></tr>
+<tr><td>Early Discharge master</td><td>and_earlydischarges</td><td>Daily target-date discharge plan</td></tr>
+<tr><td>Early Discharge patients</td><td>and_earlydischarge_ipdvisitses</td><td>Planned patient rows</td></tr>
+<tr><td>Patient discharge</td><td>crad2_patientdischarges</td><td>Linked discharge record</td></tr>
+</tbody></table>
+<h2>11.5 Relationship pattern</h2>
+<p>The parent Handover Report is the organizing record. Patient Flow Summary, Patient Experience, Hospital Event, Administrative Issue Entry, Operation, Patient Flow Entry, and Coverage Shortage records link to it. Patient-specific event and DAMA records also link to the appropriate ER, outpatient, or inpatient source record.</p>
+<p>The exact cascade-delete configuration, alternate keys, required-column enforcement, auditing settings, retention policy, and row ownership <strong>Require confirmation</strong> in Dataverse.</p>
+<h1>12. Data Sources and Integrations</h1>
+<h2>12.1 Dataverse integration</h2>
+<p>All active data operations use generated Microsoft Dataverse clients and organization-specific create, retrieve, update, and delete methods. This gives the application explicit table contracts and avoids constructing ad hoc REST calls.</p>
+<p>The application depends on valid OAuth connections to the Dataverse connector and sufficient table privileges. Schema changes should be regenerated into the source rather than manually duplicated.</p>
+<h2>12.2 Patient routing</h2>
+<p>ER patients use the ER visits source. Egypt inpatient and outpatient searches use their respective Egypt tables. AHJ uses Saudi outpatient and inpatient tables. Hospital-coded events route to country-appropriate inpatient sources, while ER-coded events force the ER source.</p>
+<h2>12.3 Early Discharge integration</h2>
+<p>For a Night report, the target discharge date is the next calendar day. The application searches for an active Draft Early Discharge master for that date, loads its patient rows, resolves inpatient details, and allows additions. Adding a patient creates an Early Discharge child record and a linked Patient Discharge record. If the second write fails, the application attempts to roll back the child record.</p>
+<p>The code expects external automation to create the daily Early Discharge master. That automation is not stored in this repository and <strong>Requires confirmation</strong>.</p>
+<h2>12.4 Power BI and related applications</h2>
+<p>The Operations Dashboard contains a direct link to an ER Power BI dashboard. Workspace ownership, report permissions, refresh schedules, row-level security, and support ownership <strong>Require confirmation</strong>.</p>
+<p>Pulse shared navigation is included as a dependency to connect this application with the wider application suite. The exact navigation registry and production target URLs <strong>Require confirmation</strong>.</p>
+<h2>12.5 Unverified integrations</h2>
+<p>No repository configuration or executable definition was found for:</p>
+<ul>
+<li>DotCare integration.</li>
+<li>SQL Server connections.</li>
+<li>CPOE.DischargeOrderLine.</li>
+<li>Power Query.</li>
+<li>Dataverse dataflows.</li>
+<li>Custom APIs or plug-ins.</li>
+<li>Power Automate solution packages.</li>
+</ul>
+<p>These may exist outside the code repository. Their existence, purpose, owner, credentials, failure handling, and service-level expectations <strong>Require confirmation</strong>.</p>
+<h1>13. Automated KPIs and Calculations</h1>
+<p>The application derives several dashboard and report indicators from persisted records.</p>
+<table><thead><tr><th>KPI</th><th>Current calculation</th></tr></thead><tbody>
+<tr><td>Net patient flow</td><td>Total admissions minus total discharges</td></tr>
+<tr><td>Major incidents</td><td>Count of event records with Major severity</td></tr>
+<tr><td>Pending issues</td><td>Administrative and operational records whose status is not Resolved</td></tr>
+<tr><td>Maximum utilization</td><td>Highest utilization value across configured clinical areas</td></tr>
+<tr><td>ER DAMA count</td><td>Count of ER DAMA entries</td></tr>
+<tr><td>Inpatient DAMA count</td><td>Count of inpatient DAMA entries</td></tr>
+<tr><td>Retention percentage</td><td>Retained cases divided by the relevant DAMA total, subject to available values</td></tr>
+<tr><td>Acknowledgment minutes</td><td>Time between the report reference time and acknowledgment timestamp</td></tr>
+<tr><td>Submission count</td><td>Number of reports in the selected dashboard population</td></tr>
+<tr><td>Acknowledged count</td><td>Number of reports with acknowledged state or timestamp</td></tr>
+</tbody></table>
+<p>Patient Flow refresh currently copies a defined subset from the linked Patient Flow Summary: ER admissions, OPD admissions, total admissions, total discharges, planned discharges, delayed-discharge count, and prolonged-ER count. DAMA totals are derived from child entries in the React state.</p>
+<p>The current code does not prove how source systems populate the linked Patient Flow Summary or how frequently those values refresh. Metric definitions, time windows, authoritative source systems, rounding, and exception treatment <strong>Require confirmation</strong> from operational and data owners.</p>
+<h1>14. Business Logic and Lifecycle Rules</h1>
+<h2>14.1 Draft creation</h2>
+<p>Starting a shift creates a Handover Report parent in Draft status and then creates or links its Patient Flow Summary. If Patient Flow creation fails, the code attempts to remove the newly created parent so the user is not left with an unusable report.</p>
+<p>The application enforces one draft for the same duty manager, business unit, shift, and calendar date. If a matching draft exists, it opens that report instead of creating another.</p>
+<h2>14.2 Draft persistence and recovery</h2>
+<p>Draft content is saved to Dataverse throughout the editing process. A local-storage key provides additional in-browser recovery. The current implementation reconstructs active drafts from Dataverse, including retained parent and child record identifiers, and then allows editing to continue.</p>
+<p>A draft remains Draft until final submission. Opening, reviewing, closing, or navigating away does not complete or acknowledge it. The duty manager may reopen it as many times as required.</p>
+<h2>14.3 Draft deletion</h2>
+<p>Deleting a draft removes related child data, Patient Experience, Patient Flow Summary, Coverage Shortages, the parent report, and local draft storage. This is an intentional destructive user action and should be included in user acceptance testing and support guidance.</p>
+<h2>14.4 Validation before submission</h2>
+<p>Submission validation includes:</p>
+<ul>
+<li>Report identity and required general fields.</li>
+<li>Staffing adequacy.</li>
+<li>Shortage types and shortage summary when staffing is Short.</li>
+<li>Hot-issues narrative length.</li>
+<li>Complaint and OVR summaries when corresponding counts are greater than zero.</li>
+<li>Government findings when a visit is recorded.</li>
+<li>Night medical-meeting narrative when the meeting is Done.</li>
+<li>Early-discharge rows when Night planned discharges are greater than zero.</li>
+<li>Required patient, type, code, area, description, actions, status, and pending-action fields across detailed sections.</li>
+</ul>
+<h2>14.5 Submission</h2>
+<p>Before submission, the application checks for a duplicate report and verifies that the previous handover for the business unit has been acknowledged. It then saves the parent and all child sections. Only after persistence succeeds does it set the parent to Completed. It removes the local draft and protects the submitted identifier from delayed autosave callbacks.</p>
+<h2>14.6 Acknowledgment</h2>
+<p>Only a submitted report can be acknowledged. A draft is explicitly rejected by the acknowledgment guard. Successful acknowledgment records the timestamp, changes the report status to Acknowledged, retains the record as active, and closes the viewer. If persistence fails, the report remains open and no success state is shown.</p>
+<h2>14.7 Previous handover rule</h2>
+<p>The previous-handover query finds the latest report for the same business unit before the current report date, considering Completed and Acknowledged reports and excluding legacy initiated drafts. Submission is blocked when the applicable previous handover has not been acknowledged.</p>
+<p>Whether same-day earlier shifts must also be included in this rule <strong>Requires confirmation</strong>, because the current query boundary is based on report date.</p>
+<h2>14.8 Carry-forward</h2>
+<p>The application reads unresolved administrative and operational items from the previous report and presents them for acceptance. Accepted items create new child rows under the current report. The implementation does not store an explicit source-to-destination relationship or update the prior item when copied. Traceability and closure ownership <strong>Require confirmation</strong>.</p>
+<h1>15. Business Unit and Country Logic</h1>
+<p>The current active business-unit choice values are:</p>
+<table><thead><tr><th>Business unit</th><th>Choice value</th><th>Country behavior</th></tr></thead><tbody>
+<tr><td>AMH</td><td>983080000</td><td>Egypt</td></tr>
+<tr><td>ASH</td><td>983080001</td><td>Egypt</td></tr>
+<tr><td>SMH</td><td>983080002</td><td>Egypt</td></tr>
+<tr><td>AHJ</td><td>983080003</td><td>Saudi Arabia</td></tr>
+</tbody></table>
+<p>The country rule is small and direct: AHJ is treated as Saudi Arabia; all other active business units are treated as Egypt. This controls patient-source options and patient lookup bindings.</p>
+<p>AHJ exposes ER, Saudi outpatient, and Saudi inpatient options. Egypt units expose ER, Egypt outpatient, and Egypt inpatient options. Event classification can further constrain the source: an ER code uses ER, while a Hospital code uses the country-specific inpatient source.</p>
+<p>There is no implemented first-load global scope modal or persistent global country selector. Any future scope feature should reuse a single mapping function and must not introduce country values that conflict with the business-unit rule without an approved migration design.</p>
+<h1>16. User Workflows</h1>
+<h2>16.1 Start or continue a handover</h2>
+<ol>
+<li>The user opens the application and is identified through the available user context.</li>
+<li>The user selects the business unit and begins a shift.</li>
+<li>The application checks for an existing matching draft.</li>
+<li>If a draft exists, it opens for continuation.</li>
+<li>If no draft exists, the application creates the Draft parent and Patient Flow record.</li>
+<li>The user moves through the report sections while changes autosave.</li>
+</ol>
+<h2>16.2 Close and resume a draft</h2>
+<ol>
+<li>The user closes or leaves the report.</li>
+<li>The application returns to the relevant navigation state.</li>
+<li>The Dataverse parent remains Draft.</li>
+<li>The Home screen continues to show the report as a draft.</li>
+<li>The user can reopen and edit it until final submission.</li>
+</ol>
+<p>Closing is a navigation action. It is not submission, completion, or acknowledgment.</p>
+<h2>16.3 Submit a handover</h2>
+<ol>
+<li>The user reviews the Summary.</li>
+<li>The application validates the complete report.</li>
+<li>The application checks the preceding handover acknowledgment.</li>
+<li>It checks that a duplicate submitted report does not exist.</li>
+<li>It persists general information and every child section.</li>
+<li>It changes the parent to Completed.</li>
+<li>It clears the local draft and displays the submitted confirmation.</li>
+</ol>
+<p>If a required save fails, the process must not present a successful final submission.</p>
+<h2>16.4 Review and acknowledge</h2>
+<ol>
+<li>The incoming duty manager opens a submitted report.</li>
+<li>The report viewer displays the complete handover.</li>
+<li>The user selects Acknowledge.</li>
+<li>The application verifies that the record is submitted.</li>
+<li>It writes the timestamp and Acknowledged status to Dataverse.</li>
+<li>After Dataverse confirms success, the viewer closes automatically.</li>
+<li>If the write fails, the viewer stays open and the user can retry.</li>
+</ol>
+<h2>16.5 Carry an unresolved issue forward</h2>
+<ol>
+<li>The new report loads unresolved administrative and operational items from the preceding report.</li>
+<li>The user reviews the offered items.</li>
+<li>Accepted items are copied into new records belonging to the current report.</li>
+<li>The user may update the new records during the current shift.</li>
+</ol>
+<h2>16.6 Add a Night early-discharge patient</h2>
+<ol>
+<li>The Night report determines the next-day target date.</li>
+<li>The app retrieves the active Draft Early Discharge master.</li>
+<li>The user searches the country-appropriate inpatient source.</li>
+<li>The app creates the Early Discharge patient row.</li>
+<li>It creates and links the Patient Discharge row.</li>
+<li>If linkage fails, the child addition is rolled back where possible.</li>
+</ol>
+<h1>17. Automation and Scheduled Processes</h1>
+<p>The application depends on several behaviors that appear to be automated outside this repository:</p>
+<table><thead><tr><th>Process</th><th>Evidence in application</th><th>Handover status</th></tr></thead><tbody>
+<tr><td>Daily Early Discharge master creation</td><td>Code expects a target-date Draft master to exist</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Early Discharge patient count rollup</td><td>Generated schema includes a scheduled rollup field</td><td>Platform schedule and ownership <strong>Require confirmation</strong></td></tr>
+<tr><td>Patient Flow source population</td><td>App reads existing summary values</td><td>Source process and refresh frequency <strong>Require confirmation</strong></td></tr>
+<tr><td>Alert generation</td><td>App reads alert records</td><td>Creation and escalation rules <strong>Require confirmation</strong></td></tr>
+<tr><td>Power BI refresh</td><td>Dashboard links to a report</td><td>Dataset, gateway, and schedule <strong>Require confirmation</strong></td></tr>
+</tbody></table>
+<p>No Power Automate definition is included in the repository. The operational handover must identify each external flow by solution, environment, owner, connection owner, trigger, schedule, inputs, outputs, retry policy, monitoring location, and support contact.</p>
+<p>The rollup for Early Discharge patient count is controlled by Dataverse scheduling. The client cannot force the rollup to execute immediately, so transient differences between child rows and a displayed rollup may occur.</p>
+<h1>18. Reporting and Export</h1>
+<h2>18.1 Handover PDF</h2>
+<p>The report viewer generates an A4 PDF using jsPDF and AutoTable. The current document includes:</p>
+<ul>
+<li>Report identity.</li>
+<li>Executive or hot-issues summary.</li>
+<li>Patient-flow groups.</li>
+<li>DAMA information.</li>
+<li>Night-shift information where applicable.</li>
+<li>Hospital events.</li>
+<li>Administrative issues.</li>
+<li>Operational issues.</li>
+<li>Patient-experience information.</li>
+<li>Page footer and page numbering.</li>
+</ul>
+<p>The final field order, branding, sign-off area, privacy classification, and management distribution rules <strong>Require confirmation</strong>.</p>
+<h2>18.2 Dashboard export</h2>
+<p>The Operations Dashboard includes a button labeled “Export Excel,” but the implementation generates a UTF-8 CSV file. The export reflects the dashboard’s filtered population and includes:</p>
+<ul>
+<li>Report ID and name.</li>
+<li>Report and creation dates.</li>
+<li>Business unit and shift.</li>
+<li>Duty manager.</li>
+<li>Report status.</li>
+<li>Acknowledgment timestamp and minutes.</li>
+<li>Hot issues.</li>
+<li>Major incident count.</li>
+<li>Pending issue count.</li>
+<li>ER and inpatient DAMA counts.</li>
+</ul>
+<p>CSV files open in Excel, but they are not native Excel workbooks. If formatting, multiple sheets, formulas, charts, protection, or data types are required, native XLSX generation must be specified and developed.</p>
+<h2>18.3 Reporting decisions required</h2>
+<p>The business owner must confirm:</p>
+<ul>
+<li>Whether exports are needed daily, weekly, monthly, or for a custom date range.</li>
+<li>Whether exports must always reflect the dashboard’s selected filters.</li>
+<li>Which user roles may export patient or operational information.</li>
+<li>The exact fields, column order, labels, calculations, and time zone.</li>
+<li>Required formats: CSV, XLSX, PDF, or a combination.</li>
+<li>Whether one file should contain details, summaries, or both.</li>
+<li>Required branding and confidentiality labels.</li>
+<li>File naming and versioning.</li>
+<li>Distribution, retention, and audit requirements.</li>
+<li>Whether PDF acknowledgment evidence must be included.</li>
+</ul>
+<p>Until confirmed, reporting remains the only primary outstanding business item.</p>
+<h1>19. Security and Access Control</h1>
+<p>Authentication is provided through the Power Apps and Dataverse connection context. Authorization ultimately depends on Power Platform sharing and Dataverse privileges.</p>
+<p><strong>Security configuration is managed in the Power Platform environment and requires environment-level confirmation.</strong></p>
+<p>The repository does not contain the environment’s security roles, team membership, application sharing list, field-security profiles, business-unit hierarchy, audit policy, or Power BI permissions. The following access model therefore <strong>Requires confirmation</strong>:</p>
+<ul>
+<li>Who may start and edit a handover.</li>
+<li>Whether duty managers are restricted to their own business unit.</li>
+<li>Who may delete drafts.</li>
+<li>Who may review and acknowledge submitted reports.</li>
+<li>Who may view the Operations Dashboard.</li>
+<li>Who may export data.</li>
+<li>Who may view patient-identifiable information.</li>
+<li>Whether the dashboard is intended for operations leadership rather than duty managers.</li>
+<li>Who administers reference data, users, alerts, and mappings.</li>
+<li>Whether service accounts own any external automation.</li>
+</ul>
+<p>The Operations Dashboard has no explicit application-level role guard in the current code. If it must be available to a separate audience, enforce access through an approved combination of app sharing, Dataverse roles, row-level access, and an application-level entitlement check.</p>
+<h2>19.1 Privacy and audit considerations</h2>
+<p>The application processes patient references and operational narratives. Production readiness should confirm least-privilege access, audit logging, data retention, export controls, non-production masking, and approved incident-response procedures. These controls cannot be verified from the repository.</p>
+<h1>20. Deployment and Environment Configuration</h1>
+<h2>20.1 Build and package</h2>
+<p>The production package is generated with the Vite build command and written to dist. The configured entry point is index.html. A clean production build was successfully completed during this handover review.</p>
+<h2>20.2 Power Apps deployment</h2>
+<p>The application is configured with app ID bb72cb69-df81-4520-ad19-da8de18c6f49 in environment cd78a59b-e16f-e4aa-b0a1-8e450a70ed56.</p>
+<p>The expected Power Apps play URL is:</p>
+<p>https://apps.powerapps.com/play/e/cd78a59b-e16f-e4aa-b0a1-8e450a70ed56/a/bb72cb69-df81-4520-ad19-da8de18c6f49</p>
+<p>The exact currently published version and production availability <strong>Require confirmation</strong>. A recent push attempt returned HTTP 403 with PowerAppsNoAccess for the authenticated user, so source changes cannot be published until an authorized account has access to the app and environment.</p>
+<h2>20.3 Release procedure</h2>
+<ol>
+<li>Review the Git working tree and staged changes.</li>
+<li>Run the targeted lifecycle tests.</li>
+<li>Run the production build.</li>
+<li>Review lint findings and waive or remediate them under an agreed policy.</li>
+<li>Confirm generated Dataverse contracts match the target environment.</li>
+<li>Confirm the Power Apps CLI is authenticated with the intended tenant and account.</li>
+<li>Confirm the account has edit access to the Code App and required environment privileges.</li>
+<li>Push the Code App using the approved release command.</li>
+<li>Verify the published version in Power Apps.</li>
+<li>Run smoke tests for draft create/resume/delete, submission, report review, acknowledgment, PDF, dashboard filters, and export.</li>
+<li>Record the Git commit, deployment time, deployer, and validation evidence.</li>
+</ol>
+<h2>20.4 Rollback</h2>
+<p>A rollback procedure is not defined in the repository and <strong>Requires confirmation</strong>. At minimum, the team should retain the last known-good Git commit, record exported app/version information where supported, and define how schema or automation changes are reversed without data loss.</p>
+<h1>21. Completed Work</h1>
+<p>The following work is complete in the current implementation:</p>
+<ul>
+<li>React/TypeScript Code App foundation and Power Apps configuration.</li>
+<li>Cross-environment generated Dataverse service integration.</li>
+<li>Duty-manager, business-unit, date, and shift report identity.</li>
+<li>Draft parent creation with Patient Flow child creation and rollback protection.</li>
+<li>Dataverse and local draft recovery.</li>
+<li>Reopening and closing drafts without changing their Draft status.</li>
+<li>Duplicate-draft and duplicate-submission prevention.</li>
+<li>Section autosave and delayed-autosave protection after submission.</li>
+<li>General, Events, Administrative, Patient Flow, Operations, Experience, and Summary screens.</li>
+<li>Night medical-meeting and early-discharge workflow.</li>
+<li>Country-specific patient source routing for AHJ and Egypt business units.</li>
+<li>Full validation before submission.</li>
+<li>Previous-handover acknowledgment requirement.</li>
+<li>Submitted report viewer.</li>
+<li>Acknowledgment timestamp and status persistence.</li>
+<li>Automatic report-viewer close after successful acknowledgment.</li>
+<li>PDF report generation.</li>
+<li>Operations Dashboard filtering and operational metrics.</li>
+<li>CSV export using the selected dashboard population.</li>
+<li>Carry-forward of unresolved administrative and operational issues.</li>
+<li>Draft deletion across parent and related child records.</li>
+<li>Six targeted lifecycle regression tests.</li>
+<li>Successful production build.</li>
+</ul>
+<h1>22. Current Outstanding Item</h1>
+<h2>Final report structure and export requirements</h2>
+<p>The application development is complete based on the requirements currently available. The remaining primary item is business confirmation of the final reporting structure.</p>
+<p>The business owner should provide or approve:</p>
+<ol>
+<li>The intended report audience.</li>
+<li>Whether the report is used per shift, daily, weekly, monthly, or on demand.</li>
+<li>Whether users need a custom date range.</li>
+<li>Whether exported results must reflect every active dashboard filter.</li>
+<li>The exact data fields and calculations.</li>
+<li>Required grouping, sorting, totals, and comparisons.</li>
+<li>Whether patient-level detail is permitted.</li>
+<li>Required formats: PDF, CSV, XLSX, or a combination.</li>
+<li>Branding, confidentiality, approval, and acknowledgment evidence.</li>
+<li>Distribution, file naming, retention, and audit expectations.</li>
+</ol>
+<p>Once this structure is confirmed, the existing output can be adjusted and validated against an approved sample. No other primary development blocker was identified in the reviewed scope.</p>
+<h1>23. Dependencies, Risks, and Limitations</h1>
+<table><thead><tr><th>Item</th><th>Impact</th><th>Required action</th></tr></thead><tbody>
+<tr><td>Power Apps access is missing for the current CLI identity</td><td>Prevents publishing</td><td>Grant app/environment access or authenticate with the authorized account</td></tr>
+<tr><td>Final report specification is unconfirmed</td><td>Output may not match management expectations</td><td>Approve a sample layout and export rules</td></tr>
+<tr><td>Shift schedule conflict</td><td>Incorrect default shift may be selected</td><td>Confirm authoritative hours and update one shared rule</td></tr>
+<tr><td>External automations are absent from source control</td><td>Support cannot trace master creation, alerts, or source refresh</td><td>Inventory flows, owners, connections, and monitoring</td></tr>
+<tr><td>Security configuration is external</td><td>Access cannot be validated from code</td><td>Review app sharing, Dataverse roles, teams, and Power BI access</td></tr>
+<tr><td>Operations Dashboard has no code-level role check</td><td>Unintended users may see the page if environment sharing is broad</td><td>Confirm audience and enforce entitlement</td></tr>
+<tr><td>CSV is labeled Export Excel</td><td>User expectation may differ from actual file type</td><td>Rename the control or implement native XLSX</td></tr>
+<tr><td>Large DutyManager component</td><td>Changes carry regression risk</td><td>Refactor incrementally with tests</td></tr>
+<tr><td>Legacy and backup files are present</td><td>Maintainers may edit the wrong implementation</td><td>Archive or clearly label them</td></tr>
+<tr><td>Lint reports 278 issues</td><td>Quality gate is not clean</td><td>Scope lint to active source, exclude generated files, and remediate agreed findings</td></tr>
+<tr><td>Same-day previous-shift acknowledgment is unclear</td><td>Submission control may not match operations</td><td>Confirm chronological rule</td></tr>
+<tr><td>Carry-forward lacks explicit lineage</td><td>Historical traceability is limited</td><td>Confirm whether source references are required</td></tr>
+<tr><td>Rollup values may be delayed</td><td>Counts may temporarily differ</td><td>Document refresh expectations</td></tr>
+<tr><td>Live end-to-end Dataverse validation is not recorded</td><td>Environment behavior may differ from static checks</td><td>Run a production-like acceptance test</td></tr>
+</tbody></table>
+<h1>24. Recommended Next Steps</h1>
+<h2>Immediate business actions</h2>
+<ol>
+<li>Approve the final report and export structure.</li>
+<li>Confirm the Operations Dashboard audience and provide the current access list.</li>
+<li>Confirm the authoritative shift times.</li>
+<li>Confirm whether acknowledgment checks must include same-day earlier shifts.</li>
+<li>Confirm whether carry-forward items require source-report traceability.</li>
+</ol>
+<h2>Immediate technical actions</h2>
+<ol>
+<li>Review and commit the staged lifecycle changes.</li>
+<li>Give the deployment account access to the configured Power Apps application and environment.</li>
+<li>Inventory external flows, dataflows, Power BI assets, service accounts, and connection owners.</li>
+<li>Run an end-to-end acceptance test using production-like Dataverse data.</li>
+<li>Record the deployed Git commit and Power Apps version.</li>
+</ol>
+<h2>Post-release improvements</h2>
+<ol>
+<li>Split the main component into screen components, hooks, validators, data repositories, and report services.</li>
+<li>Add integration tests for submission rollback, Dataverse failures, and carry-forward.</li>
+<li>Add role-aware navigation for the Operations Dashboard after the access model is approved.</li>
+<li>Align the export label with its actual format or implement native XLSX.</li>
+<li>Establish a lint baseline that excludes generated and backup code, then reduce active-source findings.</li>
+<li>Archive obsolete static assets and earlier duplicate files.</li>
+<li>Add release, rollback, support, and monitoring runbooks to the repository.</li>
+</ol>
+<h1>25. Management Handover Summary</h1>
+<p>The Duty Manager application is functionally complete for the currently defined operational handover process. It provides persistent drafts, structured section capture, validated final submission, submitted-report review, acknowledgment, dashboard monitoring, PDF generation, and filtered export. Recent lifecycle changes ensure that an initiated report stays Draft until final submission and that a reviewed report closes only after acknowledgment is successfully stored.</p>
+<p>The source of truth is the React/TypeScript application under src/ in the GitHub repository at https://github.com/MaryamEzat/Duty-Manager. The solution builds successfully and the targeted lifecycle tests pass. Publishing remains dependent on correcting Power Apps access for the deployment identity.</p>
+<p>Management approval is required for the final report structure and export operating model. Environment owners must also confirm security, external automation, Power BI ownership, connections, and production release controls. Once those confirmations are recorded and the authorized account publishes the build, the solution can proceed through final user acceptance and operational release.</p>
+<h1>Appendix A — Operational Choice Reference</h1>
+<table><thead><tr><th>Area</th><th>Available values</th></tr></thead><tbody>
+<tr><td>Shift</td><td>Morning, Evening, Night</td></tr>
+<tr><td>Report state</td><td>Draft, Completed, Acknowledged</td></tr>
+<tr><td>Severity</td><td>Low, Moderate, Major</td></tr>
+<tr><td>Resolution</td><td>Pending, In Progress, Resolved</td></tr>
+<tr><td>Functionality</td><td>Partial Outage, Total Outage, Fully Functional</td></tr>
+<tr><td>Affected service</td><td>Laboratory, Radiology, IT, Facility, Pharmacy, CSSD</td></tr>
+<tr><td>Operational issue</td><td>Equipment Breakdown, Utility Failure, Power, AC, Water, O2</td></tr>
+<tr><td>Staffing</td><td>Adequate, Short</td></tr>
+<tr><td>Shortage type</td><td>Nursing, Medical, Support Staff</td></tr>
+<tr><td>Government visit</td><td>Yes, No</td></tr>
+<tr><td>Early-discharge type</td><td>Early, Planned</td></tr>
+</tbody></table>
+<h1>Appendix B — Minimum Production Acceptance Checklist</h1>
+<p class="check">☐ Deployment account can access the target environment and app.</p>
+<p class="check">☐ Generated service contracts match the target Dataverse schema.</p>
+<p class="check">☐ Duty manager can start a report.</p>
+<p class="check">☐ Existing matching draft reopens instead of duplicating.</p>
+<p class="check">☐ Draft can be closed and reopened without becoming submitted.</p>
+<p class="check">☐ Autosaved child records reload correctly.</p>
+<p class="check">☐ Draft deletion removes expected related records.</p>
+<p class="check">☐ Submission validation blocks incomplete sections.</p>
+<p class="check">☐ Previous-handover acknowledgment rule behaves as approved.</p>
+<p class="check">☐ Successful submission creates no duplicate child rows.</p>
+<p class="check">☐ Late autosave cannot revert or alter the submitted report.</p>
+<p class="check">☐ Draft cannot be acknowledged.</p>
+<p class="check">☐ Submitted report acknowledgment writes status and timestamp.</p>
+<p class="check">☐ Viewer closes only after acknowledgment succeeds.</p>
+<p class="check">☐ Carry-forward works for unresolved administrative and operational items.</p>
+<p class="check">☐ Egypt and AHJ patient lookups use the correct source tables.</p>
+<p class="check">☐ Night early-discharge patient creation and linkage succeed.</p>
+<p class="check">☐ PDF content matches the approved report structure.</p>
+<p class="check">☐ Dashboard filters affect cards, queues, and export consistently.</p>
+<p class="check">☐ Export contains the approved fields and format.</p>
+<p class="check">☐ Operations Dashboard is available only to the approved audience.</p>
+<p class="check">☐ Power BI link and permissions work.</p>
+<p class="check">☐ Alerts display and ownership are verified.</p>
+<p class="check">☐ Audit, privacy, retention, and support controls are approved.</p>
+<h1>Appendix C — Validation Evidence</h1>
+<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>
+<tr><td>Production build</td><td>Passed; Vite built 410 modules in approximately 5.84 seconds</td></tr>
+<tr><td>Draft lifecycle tests</td><td>Passed; 6 of 6</td></tr>
+<tr><td>Lint</td><td>Not clean; 278 findings, including generated and backup files</td></tr>
+<tr><td>Live Power Apps push</td><td>Blocked by HTTP 403 PowerAppsNoAccess</td></tr>
+<tr><td>Live end-to-end Dataverse acceptance</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Final management report approval</td><td><strong>Requires confirmation</strong></td></tr>
+</tbody></table>
+<h1>Appendix D — Ownership Information to Complete</h1>
+<p>The following ownership fields should be completed during formal handover:</p>
+<table><thead><tr><th>Responsibility</th><th>Named owner</th></tr></thead><tbody>
+<tr><td>Business sponsor</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Product owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Duty Manager process owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Operations Dashboard owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Power Platform environment administrator</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Dataverse schema owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Power Automate owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Power BI owner</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Application support lead</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Release approver</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Information security approver</td><td><strong>Requires confirmation</strong></td></tr>
+<tr><td>Data privacy owner</td><td><strong>Requires confirmation</strong></td></tr>
+</tbody></table></body></html>

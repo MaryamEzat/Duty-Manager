@@ -160,6 +160,7 @@ textarea::placeholder {
 .empty { min-height: 90px; display: grid; place-items: center; gap: 4px; color: #7c89a6; font-style: italic; text-align: center; }
 .empty span { display: block; font-size: 12px; }
 .lookup-wrap { position: relative; width: 100%; }
+.lookup-status { display: block; margin-top: 6px; font-size: 12px; color: var(--muted, #6b6560); }
 .lookup-results { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 8px; z-index: 10; max-height: 220px; overflow: auto; }
 .lookup-item { display: block; width: 100%; border: 0; background: #fff; text-align: left; padding: 12px 14px; cursor: pointer; }
 .lookup-item:hover { background: var(--bg-secondary); }
@@ -7010,3 +7011,92 @@ textarea {
   border-radius: 6px;
   background: #fff3f1;
 }
+/* Night utilization: empty state, capacity hint and theatre consistency warning. */
+.night-util-empty { margin: 0; padding: 12px 18px 16px; font-size: 13px; color: var(--muted, #6b6560); }
+.util-capacity { font-style: normal; font-weight: 500; color: var(--muted, #6b6560); margin-left: 6px; }
+.flow-popup-warning { margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; background: #fbf1d6; color: #6d5104; font-size: 13px; }
+.network-row .duplicate-note { display: block; margin-top: 2px; color: #8a3b10; font-weight: 600; }
+
+/* General identity row: the report date + time pair gets its own wider column and keeps both inputs
+   inside it, so the time picker no longer runs under the Shift select on desktop widths. */
+.report-date-fields .field { padding: 0; border-right: 0; min-width: 0; }
+.report-date-fields input[type="time"] { width: 100%; min-width: 0; box-sizing: border-box; }
+@media (min-width: 1101px) {
+  .identity-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 0.8fr); }
+  .identity-fields .report-date-fields { grid-template-columns: minmax(0, 1fr) minmax(124px, 0.75fr); padding: 0 20px 18px; border-right: 1px solid var(--border); }
+}
+@media (max-width: 1100px) {
+  .identity-fields .report-date-fields { padding: 0 20px 18px; border-bottom: 1px solid var(--border); }
+}
+.shift-mismatch-banner { margin-top: 12px; }
+
+/* Long unbroken text (e.g. pasted IDs or "testtest...") must stay inside its column instead of
+   pushing across the neighbouring cells. Grid cells may shrink below their content width. */
+.ledger-row > * { min-width: 0; }
+.ledger-row .ledger-notes {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.tl-desc, .tl-field p, .report-record p, .report-record strong, .draft-row span, .current-row h3, .current-row p,
+.alert-lines dd, .carry-row p, .carry-row h3, .summary-carry-item p, .summary-carry-item strong, .flow-status-cell p {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.other-hospital-note { margin: 6px 0; padding: 8px 12px; border-radius: 8px; background: #fbe3e1; color: #8d2620; font-size: 12px; font-weight: 600; }
+
+/* Unfinished drafts: one box per hospital, side by side (4 / 2 / 1 columns). */
+.draft-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.draft-unit { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.draft-unit.has-current { border-color: var(--gold-dark); box-shadow: inset 0 3px 0 var(--gold-light); }
+.draft-unit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-light); }
+.draft-unit-head strong { font-size: 15px; color: var(--text-primary); }
+.draft-unit-head span { font-size: 11px; color: var(--text-secondary); }
+.draft-unit-empty { margin: 4px 0; font-size: 12px; color: var(--text-secondary); }
+.draft-unit-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.draft-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border-light); border-radius: 10px; background: var(--surface-hover); }
+.draft-card.current { border-color: var(--gold-dark); background: var(--gold-soft); }
+.draft-card-text { display: grid; gap: 2px; min-width: 0; }
+.draft-card-text b { font-size: 12.5px; color: var(--text-primary); overflow-wrap: anywhere; }
+.draft-card-text small { font-size: 11px; color: var(--text-secondary); }
+.draft-card-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.draft-unit-more { align-self: flex-start; padding: 2px 0; border: 0; background: none; color: var(--gold-dark); font: 600 12px var(--sans, inherit); cursor: pointer; }
+.draft-unit-more:hover { text-decoration: underline; }
+@media (max-width: 1100px) { .draft-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .draft-board { grid-template-columns: minmax(0, 1fr); } }
+/* Report time matches the height of the other identity inputs. */
+.identity-fields .report-date-fields input[type="time"] { height: 40px; min-height: 40px; padding-top: 0; padding-bottom: 0; }
+.identity-fields .field { align-self: start; }
+
+/* Shown when the signed-in user has no Duty Manager security role. */
+.access-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg, #f6f1ea); }
+.access-gate-card { width: min(560px, 100%); padding: 28px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); display: grid; gap: 12px; }
+.access-gate-card h1 { margin: 6px 0 0; font-size: 22px; color: var(--text-primary); }
+.access-gate-card p, .access-gate-card li { margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+.access-gate-card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.access-gate-card b { color: var(--text-primary); }
+.access-gate-card .dm-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--gold-dark); color: #fff; font-weight: 800; }
+.access-gate-help { font-size: 13px !important; }
+.access-gate-card .btn { justify-self: start; }
+
+/* Alerts panel: hospital filter above the Open / Done switch, and a hospital tag on each alert. */
+.alert-hospital-filter { padding: 12px 16px 0; }
+.alert-hospital { display: inline-block; margin: 2px 0 4px; padding: 2px 8px; border-radius: 999px; background: var(--gold-soft); color: var(--gold-dark); font-size: 11px; font-weight: 700; }
+
+/* Command Center KPI scorecard: one row per KPI, "All hospitals" first, then one column per hospital. */
+.kpi-scorecard .queue-head { flex-wrap: wrap; gap: 12px; }
+.kpi-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.kpi-controls label { display: grid; gap: 4px; min-width: 150px; }
+.kpi-controls label span { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+.kpi-table-wrap { overflow-x: auto; }
+.kpi-scorecard table { min-width: 760px; }
+.kpi-scorecard td { height: auto; vertical-align: top; }
+.kpi-scorecard td strong, .kpi-scorecard td b { display: block; color: var(--text-primary); }
+.kpi-scorecard td b { font-size: 15px; }
+.kpi-scorecard td small { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+.kpi-scorecard td:first-child { width: 32%; }
+.kpi-scorecard td.kpi-total { background: var(--gold-soft); }
+.kpi-scorecard .kpi-export-scope { margin: 8px 0 12px; font-size: 12px; color: var(--text-secondary); }

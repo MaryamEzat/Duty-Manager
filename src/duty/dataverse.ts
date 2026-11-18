@@ -17,6 +17,15 @@ const ACCEPT = 'application/json'
 
 type Row = Record<string, unknown>
 
+// Every create, update and delete in the app passes through crossEnvTable, so view-only access is enforced
+// here as well as in the UI. Writes stay blocked until the signed-in user's roles are known to allow them.
+export const VIEW_ONLY_MESSAGE = 'You have view-only access to Duty Manager, so this change was not saved.'
+let writesAllowed = false
+export function allowDataverseWrites(allowed: boolean) { writesAllowed = allowed }
+function assertWritable(action: string, entitySet: string) {
+  if (!writesAllowed) throw new Error(`${VIEW_ONLY_MESSAGE} (${action} on ${entitySet} blocked)`)
+}
+
 function fail(action: string, entitySet: string, result: IOperationResult<unknown>): never {
   const detail = (result as any)?.error
   throw new Error(`Dataverse ${action} on ${entitySet} failed: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`)
@@ -29,12 +38,14 @@ function fail(action: string, entitySet: string, result: IOperationResult<unknow
 export function crossEnvTable<T extends Row = any>(entitySet: string) {
   return {
     async create(record: Row): Promise<IOperationResult<T>> {
+      assertWritable('create', entitySet)
       const result = await MicrosoftDataverseService.CreateRecordWithOrganization(PREFER, ACCEPT, DATAVERSE_ORG_URL, entitySet, record)
       if (!result.success) fail('create', entitySet, result)
       return result as unknown as IOperationResult<T>
     },
 
     async update(id: string, changedFields: Row): Promise<IOperationResult<T>> {
+      assertWritable('update', entitySet)
       const result = await MicrosoftDataverseService.UpdateRecordWithOrganization(PREFER, ACCEPT, DATAVERSE_ORG_URL, entitySet, id, changedFields)
       if (!result.success) fail('update', entitySet, result)
       return result as unknown as IOperationResult<T>
@@ -42,6 +53,7 @@ export function crossEnvTable<T extends Row = any>(entitySet: string) {
 
     // Delete takes organization first (no prefer/accept), unlike create/update/get.
     async delete(id: string): Promise<void> {
+      assertWritable('delete', entitySet)
       const result = await MicrosoftDataverseService.DeleteRecordWithOrganization(DATAVERSE_ORG_URL, entitySet, id)
       if (!result.success) fail('delete', entitySet, result)
     },

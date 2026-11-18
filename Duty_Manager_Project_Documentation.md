@@ -1,908 +1,823 @@
-# Duty Manager Application
+# Duty Manager Project
 
-## Complete Project Documentation and Handover Report
+## Project Documentation and Management Handover
 
-**Prepared for:** Project sponsors, operational owners, Power Platform administrators, support teams, and future development teams  
+**Document purpose:** Business, functional, and current-status overview  
+**Audience:** New project manager, operational owners, hospital management, and project stakeholders  
 **Document date:** 13 October 2026  
-**Application status:** Development completed; report structure confirmation remains outstanding  
-**Source of truth:** Current React/TypeScript implementation in `C:\data\my-app`
+**Project status:** **Development Completed**  
+**Current phase:** Final report structure confirmation and reporting alignment
 
 ---
-
-## Document purpose
-
-This report provides a complete functional, technical, operational, and management handover for the Duty Manager application. It reflects the current source code, generated Dataverse contracts, configuration, Git history, and validation results available in the project repository. Where an external configuration or business decision cannot be proved from the repository, it is marked **Requires confirmation**.
 
 ## Contents
 
 1. Executive Summary
-2. Project Overview
+2. Project Background and Purpose
 3. Business Objectives
 4. Current Project Status
-5. Functional Scope
-6. Solution Architecture
-7. Technology Stack
-8. GitHub Repository and Source Control
-9. Application Structure
-10. Application Modules and Screens
-11. Dataverse Data Model
-12. Data Sources and Integrations
-13. Automated KPIs and Calculations
-14. Business Logic and Lifecycle Rules
-15. Business Unit and Country Logic
-16. User Workflows
-17. Automation and Scheduled Processes
-18. Reporting and Export
-19. Security and Access Control
-20. Deployment and Environment Configuration
-21. Completed Work
-22. Current Outstanding Item
-23. Dependencies, Risks, and Limitations
-24. Recommended Next Steps
-25. Management Handover Summary
+5. End-to-End Duty Manager Workflow
+6. Shift Structure
+7. Application Functional Areas
+8. Automated and Manual Information
+9. KPI and Operational Monitoring
+10. Business Unit and Country Handling
+11. Data and Integration Overview
+12. Reporting and Export
+13. Completed Development
+14. Current Outstanding Items
+15. Next Steps
+16. Management Handover Summary
 
 ---
 
 ## 1. Executive Summary
 
-The Duty Manager application is a Microsoft Power Apps Code App built with React and TypeScript. It gives hospital duty managers a structured process for starting, completing, submitting, reviewing, and acknowledging operational handover reports. The application brings together patient flow, hospital events, administrative issues, operational disruptions, patient experience, night-shift discharge planning, alerts, and management reporting in one workflow.
+Duty Manager is a hospital operations application that structures the handover of responsibility from one Duty Manager to the next. It provides a single place to record the operational position of the hospital during each shift, including patient flow, significant hospital events, administrative and service issues, staffing concerns, patient experience matters, pending actions, and the priorities that need attention during the next shift.
 
-Development is complete against the currently understood requirements. The current implementation supports resumable drafts, section-level persistence, validation before submission, submitted-report review, acknowledgment, PDF generation, dashboard analysis, and CSV export. Draft reports remain editable until final submission and may be opened and closed repeatedly. A submitted report can be acknowledged only after it has been successfully persisted as submitted; after a successful acknowledgment, the viewer closes automatically.
+The project was developed to improve a process that can otherwise depend on fragmented spreadsheets, messages, verbal updates, and free-text reports. Those methods make it difficult to confirm whether all important topics were covered, identify who owns an action, follow an issue across shifts, or provide management with a consistent historical view. Duty Manager introduces a standard sequence and a structured record for every handover.
 
-The only primary business item still outstanding is confirmation of the final report structure and reporting expectations. This includes the required management report layout, export frequency, required fields, selected-filter behavior, and whether CSV, Excel, PDF, or a combination is required. Until these points are confirmed, the application’s current PDF and dashboard CSV should be treated as implemented working outputs rather than final business-approved report formats.
+The application supports four hospital business units: AHJ, AMH, ASH, and SMH. AHJ uses the relevant Saudi Arabia patient and hospital data sources, while AMH, ASH, and SMH use the corresponding Egypt sources. This allows the same operating process to be used across facilities while patient search and related information remain appropriate to each country.
 
-The current React/TypeScript source in this repository is the application source of truth. Older static HTML, JavaScript, and CSS files remain in the repository as historical or reference material and are not the active runtime. The application builds successfully, and the six targeted draft-lifecycle tests pass. The repository lint command currently reports pre-existing issues across active, generated, and backup files and is not a clean release gate.
+The application covers the complete handover lifecycle. A Duty Manager starts a report, reviews available operational information, completes the relevant sections, saves work as a draft, reviews a consolidated summary, and submits the handover. The incoming Duty Manager can then review the submitted report and formally acknowledge it. Unresolved administrative and operational matters can be carried into the next handover where appropriate.
 
-## 2. Project Overview
+**Development is completed.** The core application, operational sections, draft lifecycle, patient lookup, Night-shift functions, submission, acknowledgment, dashboard, and current report/export capabilities have been delivered.
 
-The application supports the transfer of operational accountability between hospital duty managers across shifts. Each handover is associated with a report date, hospital business unit, shift, and duty manager. The report records operational status and outstanding items so that the incoming manager can understand current conditions and acknowledge receipt.
+The project is currently waiting for confirmation of the final structure and content of the report that will be extracted or generated from the application. The required audience, reporting period, layout, sections, field order, level of detail, filter behavior, format, and management summary must be agreed. Once this is confirmed, the existing output can be adjusted if required, validated against an approved sample, and taken through final acceptance.
 
-The active business units are:
+## 2. Project Background and Purpose
 
-| Code | Business unit | Country routing |
-|---|---|---|
-| AMH | AMH | Egypt |
-| ASH | ASH | Egypt |
-| SMH | SMH | Egypt |
-| AHJ | AHJ | Saudi Arabia |
+Hospital operations change continuously during the day. Admissions and discharges affect capacity; delayed patients require escalation; clinical or facility incidents can disrupt service; staffing gaps may affect coverage; complaints and regulatory matters may require follow-up; and open actions must move safely from one shift to the next.
 
-The system uses AHJ as the Saudi Arabia business unit. All other active business units use Egypt data sources. This behavior is explicitly implemented in the patient lookup logic.
+A reliable handover therefore needs more than a short narrative. The incoming Duty Manager needs a clear view of what happened, the hospital’s current position, what remains unresolved, which patients or services need attention, and what action is expected next.
 
-The application is designed for three shifts: Morning, Evening, and Night. The current application derives the initial shift using 07:00–15:00 for Morning, 15:00–23:00 for Evening, and 23:00–07:00 for Night. Business notes supplied separately refer to 08:00–14:00, 14:00–20:00, and 20:00–08:00. The authoritative shift schedule therefore **Requires confirmation**.
+Before a structured application, handover information may be distributed across conversations, emails, messages, spreadsheets, source systems, and manually prepared reports. This creates several operational problems:
+
+- The content and quality of handovers may vary between Duty Managers or facilities.
+- Important information may be omitted because there is no standard sequence.
+- Pending actions can be difficult to track across shifts.
+- The same information may need to be entered repeatedly in different places.
+- Management reporting requires manual consolidation.
+- Historical review and accountability are limited when information is unstructured.
+- Acknowledgment by the incoming Duty Manager may not be formally recorded.
+
+Duty Manager centralizes the process. Each shift produces a structured operational record linked to a report date, hospital business unit, shift, and Duty Manager. The record brings together the hospital’s operational position, patient-flow indicators, significant events, administrative matters, service disruptions, patient-experience information, Night-shift planning, hot issues, and outstanding actions.
+
+The application does not replace operational judgment. It gives the Duty Manager a consistent framework for applying that judgment, explaining exceptions, escalating concerns, and transferring accountability to the next shift.
 
 ## 3. Business Objectives
 
-The application addresses the following objectives:
+The project was designed to achieve the following business outcomes.
 
-- Standardize duty-manager handovers across hospital business units and shifts.
-- Preserve incomplete work as a draft until the duty manager explicitly submits it.
-- Allow a draft to be opened, closed, and continued without changing its lifecycle state.
-- Prevent duplicate handovers for the same manager, business unit, shift, and date.
-- Capture structured operational data rather than relying on unstructured messages.
-- Highlight major incidents, pending issues, hot issues, staffing gaps, and patient-flow pressure.
-- Require the previous handover to be acknowledged before the next handover is submitted.
-- Provide a formal acknowledgment timestamp and measurable acknowledgment turnaround.
-- Carry unresolved administrative and operational items into the next handover when accepted.
-- Support operational review through dashboard metrics, filters, PDF reports, and export.
-- Use country-appropriate patient sources for Egypt and Saudi Arabia.
-- Support night-shift early-discharge planning and linkage to discharge records.
+### 3.1 Standardize the handover process
+
+Every Duty Manager follows the same main sequence and covers the same operational areas. This reduces variation and helps ensure that important information is not missed.
+
+### 3.2 Improve continuity between shifts
+
+The incoming Duty Manager receives a structured view of the previous shift, including unresolved issues and pending actions. Formal acknowledgment confirms that the handover was reviewed.
+
+### 3.3 Centralize operational information
+
+The application provides one handover record for patient flow, events, administrative matters, operational disruptions, experience concerns, Night activities, and priorities.
+
+### 3.4 Improve accountability
+
+Each report is linked to a Duty Manager, business unit, date, and shift. Submission and acknowledgment are recorded, including an acknowledgment timestamp.
+
+### 3.5 Track unresolved and pending issues
+
+Administrative and operational issues retain their status and required action. Relevant unresolved items can be carried into the next report so they remain visible.
+
+### 3.6 Provide management visibility
+
+The Operations Dashboard organizes submitted handovers using date, shift, business-unit, and Duty Manager filters. It highlights operational signals and supports report extraction.
+
+### 3.7 Capture important hospital events
+
+Structured event information improves clarity around what happened, where it occurred, the patient involved where applicable, the severity, actions taken, and current status.
+
+### 3.8 Monitor patient flow and operational performance
+
+Admissions, discharges, delays, theatre activity, DAMA cases, utilization, staffing adequacy, and coverage concerns provide a shift-level operational picture.
+
+### 3.9 Maintain a structured historical record
+
+Submitted and acknowledged handovers create a consistent history that can support operational review, management reporting, trend analysis, and follow-up.
+
+### 3.10 Support consistent reporting
+
+The application already provides report and export capabilities. The remaining step is to align the final extracted report with the approved management requirement.
 
 ## 4. Current Project Status
 
-| Area | Status | Notes |
-|---|---|---|
-| Core application development | Complete | Active React/TypeScript implementation is available in `src/`. |
-| Draft lifecycle | Complete | Drafts remain open until final submission and can be resumed repeatedly. |
-| Submission workflow | Complete | Includes validation, persistence, duplicate prevention, and autosave protection. |
-| Review and acknowledgment | Complete | Acknowledgment is restricted to submitted reports and the viewer closes after successful persistence. |
-| Dashboard | Complete | Filters, operational indicators, issue views, refresh, and CSV export are implemented. |
-| PDF report | Complete | A4 handover report generation is implemented. |
-| Dataverse integration | Complete in code | Live permissions, connections, and environment ownership require environment verification. |
-| Automated testing | Passed | Six targeted draft-lifecycle tests pass. |
-| Production build | Passed | Vite production build completed successfully. |
-| Lint quality gate | Open | Current lint run reports 278 issues across active, generated, and backup files. |
-| Power Apps publishing | Blocked by access | The configured app returned `PowerAppsNoAccess` for the authenticated account. |
-| Final report structure | **Requires confirmation** | This is the primary remaining business decision. |
+### 4.1 Status at a glance
 
-The repository also contains staged work that implements and tests the latest draft and acknowledgment requirements. These changes should be reviewed, committed, and published through the normal release process after environment access is confirmed.
-
-## 5. Functional Scope
-
-### 5.1 Included scope
-
-- Duty-manager identity and business-unit selection.
-- Start a new handover for a business unit and shift.
-- Recover and continue an existing Dataverse draft.
-- Local draft caching as a secondary resilience mechanism.
-- General handover information and hot issues.
-- Hospital events and incident details.
-- Administrative issue tracking.
-- Patient-flow, theatre, staffing, utilization, discharge, and DAMA information.
-- Operational disruption and service-functionality tracking.
-- Patient complaints, OVRs, government visits, findings, and actions.
-- Night medical meeting and early-discharge planning.
-- Summary review and validation before submission.
-- Submitted report confirmation and report review.
-- Previous-handover acknowledgment.
-- Carry-forward of unresolved administrative and operational issues.
-- Alerts display.
-- Operations dashboard with filters and export.
-- PDF report generation.
-
-### 5.2 Excluded or unconfirmed scope
-
-- Final management-approved report layout and export specification.
-- Confirmed daily, weekly, monthly, or custom-range export usage.
-- Native `.xlsx` export; the current “Export Excel” control produces CSV.
-- Power Automate flow definitions and ownership.
-- Power Query or dataflow definitions.
-- DotCare, SQL, or CPOE integration configuration.
-- Confirmed upstream formulas that populate operational source tables.
-- Environment security-role definitions and user access lists.
-- A global country or business-unit preference stored across sessions; this is not implemented.
-
-Each item above **Requires confirmation** before it can be considered part of an approved production scope.
-
-
-## 6. Solution Architecture
-
-### 6.1 Logical architecture
-
-The solution uses the following runtime path:
-
-1. Microsoft Power Apps hosts the Code App.
-2. Vite loads the React entry point in src/main.tsx.
-3. src/App.tsx loads the Duty Manager application.
-4. React components manage the user interface, workflow state, validation, and navigation.
-5. The data layer calls generated Microsoft Dataverse service clients.
-6. The generated clients perform organization-specific CRUD operations against the target Dataverse environment.
-7. Dataverse stores parent handover reports, section records, lookups, patient references, alerts, and operational source data.
-8. Client-side PDF and CSV generators produce downloadable outputs.
-
-The active code deliberately routes reads and writes through the generated cross-environment Dataverse services. The helper named getXrmWebApi() returns no active Web API object, which prevents an accidental mixture of host-environment Web API calls and generated service calls.
-
-### 6.2 Environment relationship
-
-The Code App is configured in one Power Platform environment while the business data service points to a specific Dataverse organization URL. This is a cross-environment design and depends on the deployed connection reference, user authorization, and target Dataverse privileges.
-
-| Component | Configured value |
+| Status area | Current position |
 |---|---|
-| Power Apps application ID | bb72cb69-df81-4520-ad19-da8de18c6f49 |
-| Power Platform environment ID | cd78a59b-e16f-e4aa-b0a1-8e450a70ed56 |
-| App type | Code App |
-| Region | Production |
-| Build output | ./dist |
-| Build entry point | index.html |
-| Dataverse connector | shared_commondataserviceforapps |
-| Authentication | OAuth |
-| Target business-data organization | https://org319b4ea9.crm4.dynamics.com |
+| **Development status** | **COMPLETED** |
+| **Current phase** | Report structure confirmation and final reporting alignment |
+| **Application workflow** | Completed |
+| **Operational sections** | Completed |
+| **Draft and submission lifecycle** | Completed |
+| **Review and acknowledgment** | Completed |
+| **Dashboard** | Completed |
+| **Current report/export capability** | Completed |
+| **Primary outstanding item** | Confirmation of the final extracted/generated report structure |
 
-The repository refers to a host organization and a separate business-data organization. The exact production ownership, service account, connection owner, and data-loss prevention policy **Require confirmation** in the Power Platform environment.
+### 4.2 Completed scope
 
-### 6.3 Architectural boundaries
+The delivered application includes:
 
-The application contains client-side workflow and persistence logic. It does not contain server-side plug-ins, custom APIs, Power Automate packages, dataflows, or infrastructure-as-code definitions. Any automation that creates source data, alerts, or daily discharge masters exists outside this repository and **Requires confirmation**.
+- Core Duty Manager application and navigation.
+- Shift-based handover workflow.
+- Draft creation, saving, closing, reopening, and deletion.
+- General and handover information.
+- Hospital Events.
+- Administrative Issues.
+- Patient Flow.
+- Operations.
+- Patient Experience.
+- Night Shift and medical-meeting information.
+- Early and Planned Discharge linkage where applicable.
+- Patient search using the appropriate facility and country source.
+- Summary review and business validation.
+- Final submission.
+- Review and acknowledgment by the incoming Duty Manager.
+- Carry-forward of relevant unresolved issues.
+- Operations Dashboard.
+- Current PDF handover report and dashboard export.
 
-## 7. Technology Stack
+### 4.3 Primary outstanding item
 
-| Layer | Technology | Purpose |
+The required structure of the final extracted or generated report must be confirmed. The decision needs to cover:
+
+- Required report layout.
+- Required sections and information.
+- Field order and grouping.
+- Required KPIs and summary measures.
+- Whether dashboard filters must determine the extracted population.
+- Required reporting period: per shift, daily, weekly, monthly, or custom.
+- Whether patient-level detail is permitted or only summarized information is required.
+- Preferred format, such as PDF, Excel, or both.
+- Management summary, branding, and acknowledgment requirements.
+
+This reporting decision is the current project dependency. The application itself should not be described as being under general development.
+
+## 5. End-to-End Duty Manager Workflow
+
+The handover process follows the sequence below.
+
+### Step 1 — Start the shift report
+
+The Duty Manager starts a report for the relevant hospital business unit and shift. The application establishes the report date, business unit, shift, and Duty Manager.
+
+If a matching draft already exists, the Duty Manager continues that report instead of creating a duplicate.
+
+### Step 2 — Load available operational information
+
+Where information is available through the connected data records, the application retrieves relevant patient-flow counts and operational context. The Duty Manager reviews these values and completes information that requires human judgment or explanation.
+
+### Step 3 — Complete General Information
+
+The Duty Manager confirms the handover identity and records the hot issues or major priorities that the incoming manager must understand.
+
+### Step 4 — Record Hospital Events
+
+Significant hospital events are entered using a structured set of details. Where a patient is involved, the Duty Manager searches the appropriate patient source and links the patient to the event.
+
+### Step 5 — Review and enter Administrative Issues
+
+Administrative or coordination matters are recorded with their status and pending actions. Examples include patient delays, outstanding investigations, service coordination, or other matters requiring management attention.
+
+### Step 6 — Review and complete Patient Flow
+
+The Duty Manager reviews admissions, discharges, delays, theatre information, DAMA activity, utilization, staffing adequacy, and coverage shortages. Automatically available figures are combined with manually entered explanations and operational judgments.
+
+### Step 7 — Record Operations issues
+
+Service disruptions or functionality concerns are entered for areas such as Laboratory, Radiology, IT, CSSD, Pharmacy, and Facility services. Each issue includes its impact, current status, and pending action.
+
+### Step 8 — Capture Patient Experience information
+
+Complaints, OVRs, government or regulatory visits, findings, and corrective actions are recorded when applicable.
+
+### Step 9 — Complete Night-specific information
+
+For a Night report, the Duty Manager records the medical-meeting position and supports next-day Early or Planned Discharge preparation. Relevant inpatient information can be selected and linked.
+
+### Step 10 — Review hot issues and pending items
+
+The Duty Manager confirms the matters requiring attention, including unresolved administrative and operational items that should remain visible.
+
+### Step 11 — Review the Summary
+
+The Summary brings together the completed report. The Duty Manager checks the information before final submission. The application verifies that required information and explanations have been provided.
+
+### Step 12 — Submit the handover
+
+Submission changes the report from an editable draft into a completed handover. A submitted report is no longer treated as unfinished work.
+
+### Step 13 — Incoming Duty Manager reviews the report
+
+The incoming Duty Manager opens the submitted handover and reviews the operational position, events, patient-flow indicators, hot issues, and pending actions.
+
+### Step 14 — Acknowledge the handover
+
+The incoming Duty Manager acknowledges the report. The application records the acknowledgment and timestamp, providing evidence that the handover was received and reviewed.
+
+### Step 15 — Continue unresolved matters
+
+Relevant unresolved administrative and operational issues may be accepted into the next handover. This maintains continuity without changing the historical report from the previous shift.
+
+## 6. Shift Structure
+
+The Duty Manager process operates across three shifts.
+
+| Shift | Business-defined time | Main purpose |
 |---|---|---|
-| Host | Microsoft Power Apps Code Apps | Enterprise application hosting |
-| Front end | React 19.2 | Component-based user interface |
-| Language | TypeScript 5.9 | Typed application and data logic |
-| Build tooling | Vite 7.2 | Development and production bundling |
-| Power Apps SDK | @microsoft/power-apps 1.2.5 | Code App and connector integration |
-| Vite integration | @microsoft/power-apps-vite 1.0.2 | Power Apps build tooling |
-| Data platform | Microsoft Dataverse | Transactional and reference data |
-| Data clients | Generated Microsoft Dataverse services | Typed organization-specific CRUD |
-| PDF | jsPDF 4.2.1 and jsPDF-AutoTable 5.0.8 | Handover PDF output |
-| Navigation | Pulse shared navigation 1.1.3 | Shared application navigation |
-| Testing | Node test runner | Targeted lifecycle behavior tests |
-| Source control | Git and GitHub | Version history and collaboration |
+| Morning | 08:00–14:00 | Daytime operational oversight, activity review, and escalation |
+| Evening | 14:00–20:00 | Continuation of operational oversight and transfer into Night coverage |
+| Night | 20:00–08:00 | Overnight operations, medical-meeting information, and next-day discharge planning |
 
-No back-end application server is present in the repository. The browser-hosted application connects to Dataverse through the configured Power Apps connector.
+The report records the applicable shift and uses it to organize handovers and dashboard analysis. Operational policy remains the authority for shift timings.
 
+### 6.1 Night-only functions
 
-## 8. GitHub Repository and Source Control
+Night includes additional information because it supports preparation for the following day. The Night Duty Manager can record:
 
-The configured repository is:
+- Whether the Night medical meeting was completed.
+- A summary of the medical meeting.
+- Planned next-day discharges.
+- Early or Planned Discharge patients.
+- Relevant inpatient selection and linkage.
 
-**Repository:** https://github.com/MaryamEzat/Duty-Manager  
-**Primary branch:** main
+This provides visibility before the Morning shift and helps prepare beds, patient movement, discharge coordination, and required follow-up.
 
-Recent repository history inspected for this handover includes:
+## 7. Application Functional Areas
 
-| Commit | Date | Description |
-|---|---|---|
-| 9ccbd23 | 29 September 2026 | Update Duty Manager with recovered development changes |
-| 9b5b96f | 10 September 2026 | Update Duty Manager filters and UI |
-| 1c38c79 | 26 August 2026 | First commit |
+### 7.1 General and Handover Information
 
-At the time of documentation, the working tree contains staged changes in:
+This area establishes the identity and executive context of the report.
 
-- src/duty/DutyManager.tsx
-- src/duty/drafts.ts
-- tests/draft-lifecycle.test.mjs
-
-These changes implement the latest draft recovery, draft acknowledgment prevention, late-autosave protection, and post-acknowledgment viewer behavior. They add approximately 260 lines and remove 9 lines. They have not been altered by this documentation work.
-
-### 8.1 Source-control handover guidance
-
-- Review and commit the staged lifecycle changes using a descriptive commit.
-- Tag or record the exact commit promoted to each Power Platform environment.
-- Keep generated Dataverse files synchronized with the target environment schema.
-- Do not treat a GitHub push as a Power Apps deployment. Source control and Code App publishing are separate release steps.
-- Remove or clearly archive obsolete static and backup files after stakeholder approval so future maintainers do not mistake them for the active runtime.
-- Protect main with review and build checks if organizational policy permits.
-
-## 9. Application Structure
-
-### 9.1 Active entry points
-
-| Path | Responsibility |
+| Information | Business purpose |
 |---|---|
-| src/main.tsx | React bootstrap, error boundary, and lazy loading |
-| src/App.tsx | Loads global styles and mounts Duty Manager |
-| src/duty/DutyManager.tsx | Main application UI, navigation, workflow, validation, reporting, and orchestration |
-| src/duty/data.ts | Entity definitions, CRUD wrappers, queries, and mapping logic |
-| src/duty/dataverse.ts | Generated-service routing and Dataverse access boundary |
-| src/duty/drafts.ts | Draft reconstruction, lifecycle helpers, and submission protection |
-| src/generated/ | Generated Dataverse models, metadata, and services |
-| tests/draft-lifecycle.test.mjs | Targeted lifecycle regression tests |
-| power.config.json | Power Apps Code App and connector configuration |
-| vite.config.ts | Vite build configuration |
+| Report date | Identifies the operational day covered |
+| Shift | Identifies Morning, Evening, or Night responsibility |
+| Duty Manager | Records the manager responsible for the handover |
+| Business Unit | Identifies the hospital or facility |
+| Report status | Distinguishes Draft, Completed, and Acknowledged reports |
+| Hot Issues | Summarizes the most important priorities, escalations, or risks for the incoming shift |
 
-### 9.2 Legacy and reference material
+The general section gives the incoming Duty Manager immediate context before reviewing detailed areas. Hot Issues should focus attention on matters that need awareness or action rather than repeating every detail in the report.
 
-The repository contains static pages/, js/, and css/ assets, including duplicates under public/. These files describe an earlier implementation approach and may still be useful for design or historical reference. They are not mounted by the current React application and must not be treated as the deployed source without explicit verification.
+### 7.2 Hospital Events
 
-Existing documents under docs/ also describe an earlier handoff state. They remain useful background, but the current code and this report supersede them where behavior differs.
+Hospital Events records significant incidents or occurrences during the shift in a consistent format.
 
-### 9.3 Maintainability observations
+Information may include:
 
-The main DutyManager.tsx file currently contains a large amount of UI, state, validation, business workflow, persistence coordination, dashboard logic, and report generation. The application works, but future maintenance would benefit from separating screens, hooks, validators, repository services, and reporting modules. Such refactoring should be incremental and protected by lifecycle tests because the file contains tightly related operational behavior.
+- Event type and event code.
+- Event time.
+- Patient and patient identification where applicable.
+- Hospital location or area.
+- Responsible owner or area.
+- Event summary or description.
+- Actions taken.
+- Severity.
+- Current resolution status.
 
-## 10. Application Modules and Screens
+Patient search adapts to the selected business unit and event context. ER events use the ER patient source, while hospital or inpatient events use the relevant inpatient source for Egypt or Saudi Arabia. The Duty Manager selects the patient and then records the event details.
 
-### 10.1 Home
+This area helps management understand significant events, the response taken, and whether further action remains.
 
-The Home screen is the operational starting point. It shows the current draft, readiness information, resumable drafts, delete actions, and recent submitted handovers. Recent reports can be filtered and sorted, then opened for review.
+### 7.3 Administrative Issues
 
-Drafts are displayed as work in progress and should not appear as submitted handovers. Closing a draft returns the user to navigation without submitting or acknowledging it.
+Administrative Issues records matters that require coordination, escalation, or follow-up but are not primarily service-functionality incidents.
 
-### 10.2 General information
+Examples may include:
 
-Captures the report identity and general operational context, including report date, business unit, shift, duty manager, and hot issues. The report parent is created in Draft status when a shift is started.
+- Prolonged admission.
+- Delayed discharge.
+- ER triage or waiting delay.
+- Radiology pending.
+- Laboratory pending.
+- Equipment-related coordination.
+- Operating-room delay.
+- Other approved administrative issue categories.
 
-### 10.3 Hospital events
+The available category list is maintained in the application’s reference information. For each issue, the Duty Manager records the relevant details, current status, and pending action when the issue is not resolved.
 
-Captures structured incidents with event type, event code, location or area, patient, description, actions, severity, and resolution status. Patient lookup behavior changes according to event type, code, business unit, and country routing.
+Some operational counts, such as delayed discharges or prolonged ER cases, can be retrieved through Patient Flow. The reason, impact, escalation, ownership, and pending action remain a management narrative completed by the Duty Manager.
 
-### 10.4 Administrative issues
+### 7.4 Patient Flow
 
-Captures administrative categories, issue details, status, and pending actions. Unresolved issues can be offered for carry-forward into the next handover.
+Patient Flow provides a structured view of activity, capacity pressure, discharge performance, theatre activity, DAMA cases, utilization, and staffing.
 
-### 10.5 Patient flow
+#### Admissions and ER activity
 
-Captures or displays:
+- ER admissions.
+- OPD admissions.
+- Total admissions.
+- ER volume.
+- Prolonged ER cases and explanation.
 
-- ER, OPD, and total admissions.
-- Total, planned, and unplanned discharges.
-- Delayed discharges and explanatory narrative.
-- Prolonged ER admissions and explanatory narrative.
-- Theatre totals, pre-operative, post-operative, postponed, and cancelled cases.
-- DAMA cases for ER, inpatient, and closed cases.
-- Retention results.
-- Bed utilization for inpatient, ICU, CCU, PICU, NICU, cardiovascular, and stroke areas.
-- Staffing adequacy, shortage categories, and shortage summary.
+These indicators help show the level and source of demand during the shift.
 
-Some headline counts are refreshed from the linked Patient Flow Summary record. Other fields remain user-entered. The exact ownership of each metric **Requires confirmation** with the data owners.
+#### Discharges
 
-### 10.6 Operations
+- Total discharges.
+- Planned discharges.
+- Unplanned discharges.
+- Delayed discharge count.
+- Delayed discharge explanation.
 
-Captures service functionality, affected service, issue type, description, status, and pending action. Supported affected services include Laboratory, Radiology, IT, Facility, Pharmacy, and CSSD. Unresolved items can be carried forward.
+These measures support bed availability, patient movement, and escalation of discharge barriers.
 
-### 10.7 Patient experience
+#### Theatre activity
 
-Captures complaint totals and summaries, OVR totals and summaries, government-visit status, findings, and corrective actions.
+- Total theatre cases.
+- Pre-operative cases.
+- Post-operative cases.
+- Postponed cases.
+- Cancelled cases.
 
-### 10.8 Night shift and early discharge
+Theatre information helps the Duty Manager understand workload, flow implications, and exceptions requiring follow-up.
 
-For Night reports, the application supports medical-meeting status and summary plus next-day planned discharge details. It reads the daily Early Discharge master and associated patient rows, allows the duty manager to add an eligible inpatient, and creates a linked patient-discharge record.
+#### DAMA
 
-### 10.9 Summary and submission
+DAMA information records patients who leave or request to leave against medical advice. It covers ER, inpatient, and closed cases as applicable, including patient selection, reason, action taken, and retention outcome.
 
-Presents the report for final review, runs cross-section validation, checks for an acknowledged prior handover, prevents duplicates, persists all sections, and marks the parent report Completed only when submission succeeds.
+The application calculates DAMA totals from the entered cases and can use those totals for dashboard indicators.
 
-### 10.10 Submission confirmation
+#### Bed utilization
 
-Confirms successful final submission and provides the user with a clear end state. Local draft state is removed after successful submission.
+Utilization is recorded for relevant clinical areas, including inpatient, ICU, CCU, PICU, NICU, cardiovascular, and stroke services where applicable. These values help identify capacity pressure and the areas requiring management attention.
 
-### 10.11 Report viewer and acknowledgment
+#### Staffing and coverage
 
-Displays a submitted report for operational review and PDF generation. A submitted report may be acknowledged, which writes the acknowledgment timestamp and changes the status to Acknowledged. The viewer closes only after acknowledgment persistence succeeds. On persistence failure, it stays open so the user can retry.
-
-### 10.12 Operations Dashboard
-
-Provides date, shift, business-unit, and duty-manager filters; high-level performance signals; business-unit comparisons; an issue queue; refresh; links to related reporting; and export. Dashboard access is not restricted in application code and **Requires confirmation**.
-
-### 10.13 Alerts
-
-Displays alerts from Dataverse in a drawer. Alert creation, recipients, escalation rules, and lifecycle are outside this repository and **Require confirmation**.
-
-
-## 11. Dataverse Data Model
-
-### 11.1 Core tables
-
-| Functional area | Dataverse entity set | Purpose |
-|---|---|---|
-| Handover parent | dma_handoverreports | Report identity, status, date, BU, shift, manager, hot issues, acknowledgment |
-| Patient flow summary | dma_patientflowsummaries | Admissions, discharges, theatre, utilization, staffing, and narratives |
-| Patient experience | dma_patientexperiences | Complaints, OVRs, government visits, findings, and actions |
-| Operations | dma_opeartions | Operational service issues; spelling reflects the deployed schema |
-| Hospital events | dma_hospitalevents | Clinical and hospital incident records |
-| Administrative entries | dma_administrativeissueentries | Administrative issues and pending actions |
-| DAMA entries | dma_patientflowentries | ER, inpatient, and closed DAMA cases |
-| Alerts | dma_alerts | User-facing operational alerts |
-| Coverage shortages | dma_coverageshortages | Staffing shortage classifications |
-| Event types | dma_eventtypes | Event-type reference data |
-| Event codes | dma_eventcodes | Event-code reference data |
-| Administrative issues | dma_administrativeissues | Administrative category reference data |
-| Users | systemusers | Duty-manager identity lookup |
-
-### 11.2 Handover parent fields
-
-Key active fields include:
-
-| Field | Purpose |
-|---|---|
-| dma_handoverreportid | Primary report GUID |
-| dma_name | Report name |
-| dma_reportdate | Operational report date |
-| dma_businessunit | Business-unit choice |
-| dma_shifttype | Shift choice |
-| dma_reportstatus | Draft, Completed, or Acknowledged |
-| dma_hotissues | Executive operational narrative |
-| dma_dmacknowledgmenttimestamp | Successful acknowledgment time |
-| dma_DutyManager | Lookup to system user |
-| dma_nightmedicalmeeting | Night medical-meeting status |
-| dma_nightmedicalmeetingsummary | Night medical-meeting narrative |
-
-The generated schema also exposes night attendees, clinical decisions, administrative notes, regulatory details, a composed key, Daily Report, and Facility Capacity references. These fields are not actively used by the current UI and **Require confirmation** before future development relies on them.
-
-### 11.3 Choice values
-
-| Choice | Label | Value |
-|---|---|---|
-| Report status | Acknowledged | 778000000 |
-| Report status | Draft | 778000001 |
-| Report status | Completed | 778000002 |
-| Shift | Morning | 989230000 |
-| Shift | Evening | 989230001 |
-| Shift | Night | 989230002 |
-| Severity | Low | 778000000 |
-| Severity | Moderate | 778000001 |
-| Severity | Major | 778000002 |
-| Resolution | Pending | 778000000 |
-| Resolution | Resolved | 778000001 |
-| Resolution | In Progress | 778000002 |
-| Staffing | Short | 778000000 |
-| Staffing | Adequate | 778000001 |
-| Government visit | Yes | 999740000 |
-| Government visit | No | 999740001 |
-
-Operational functionality values are Partial Outage, Total Outage, and Fully Functional. Shortage types are Nursing, Medical, and Support Staff. Early Discharge masters use Draft and Submitted status values, while discharge types distinguish Early and Planned.
-
-### 11.4 Patient and discharge source tables
-
-| Source | Entity set | Usage |
-|---|---|---|
-| Egypt ER visits | cr301_ervisitses | ER patient lookup |
-| Egypt inpatient | ipd_patients | Egypt inpatient lookup |
-| Egypt outpatient | opd_patients | Egypt outpatient lookup |
-| Saudi outpatient | opd_ksapatientses | AHJ outpatient lookup |
-| Saudi inpatient | and_inpatientlists | AHJ inpatient and early-discharge lookup |
-| Early Discharge master | and_earlydischarges | Daily target-date discharge plan |
-| Early Discharge patients | and_earlydischarge_ipdvisitses | Planned patient rows |
-| Patient discharge | crad2_patientdischarges | Linked discharge record |
-
-### 11.5 Relationship pattern
-
-The parent Handover Report is the organizing record. Patient Flow Summary, Patient Experience, Hospital Event, Administrative Issue Entry, Operation, Patient Flow Entry, and Coverage Shortage records link to it. Patient-specific event and DAMA records also link to the appropriate ER, outpatient, or inpatient source record.
-
-The exact cascade-delete configuration, alternate keys, required-column enforcement, auditing settings, retention policy, and row ownership **Require confirmation** in Dataverse.
-
-## 12. Data Sources and Integrations
-
-### 12.1 Dataverse integration
-
-All active data operations use generated Microsoft Dataverse clients and organization-specific create, retrieve, update, and delete methods. This gives the application explicit table contracts and avoids constructing ad hoc REST calls.
-
-The application depends on valid OAuth connections to the Dataverse connector and sufficient table privileges. Schema changes should be regenerated into the source rather than manually duplicated.
-
-### 12.2 Patient routing
-
-ER patients use the ER visits source. Egypt inpatient and outpatient searches use their respective Egypt tables. AHJ uses Saudi outpatient and inpatient tables. Hospital-coded events route to country-appropriate inpatient sources, while ER-coded events force the ER source.
-
-### 12.3 Early Discharge integration
-
-For a Night report, the target discharge date is the next calendar day. The application searches for an active Draft Early Discharge master for that date, loads its patient rows, resolves inpatient details, and allows additions. Adding a patient creates an Early Discharge child record and a linked Patient Discharge record. If the second write fails, the application attempts to roll back the child record.
-
-The code expects external automation to create the daily Early Discharge master. That automation is not stored in this repository and **Requires confirmation**.
-
-### 12.4 Power BI and related applications
-
-The Operations Dashboard contains a direct link to an ER Power BI dashboard. Workspace ownership, report permissions, refresh schedules, row-level security, and support ownership **Require confirmation**.
-
-Pulse shared navigation is included as a dependency to connect this application with the wider application suite. The exact navigation registry and production target URLs **Require confirmation**.
-
-### 12.5 Unverified integrations
-
-No repository configuration or executable definition was found for:
-
-- DotCare integration.
-- SQL Server connections.
-- CPOE.DischargeOrderLine.
-- Power Query.
-- Dataverse dataflows.
-- Custom APIs or plug-ins.
-- Power Automate solution packages.
-
-These may exist outside the code repository. Their existence, purpose, owner, credentials, failure handling, and service-level expectations **Require confirmation**.
-
-## 13. Automated KPIs and Calculations
-
-The application derives several dashboard and report indicators from persisted records.
-
-| KPI | Current calculation |
-|---|---|
-| Net patient flow | Total admissions minus total discharges |
-| Major incidents | Count of event records with Major severity |
-| Pending issues | Administrative and operational records whose status is not Resolved |
-| Maximum utilization | Highest utilization value across configured clinical areas |
-| ER DAMA count | Count of ER DAMA entries |
-| Inpatient DAMA count | Count of inpatient DAMA entries |
-| Retention percentage | Retained cases divided by the relevant DAMA total, subject to available values |
-| Acknowledgment minutes | Time between the report reference time and acknowledgment timestamp |
-| Submission count | Number of reports in the selected dashboard population |
-| Acknowledged count | Number of reports with acknowledged state or timestamp |
-
-Patient Flow refresh currently copies a defined subset from the linked Patient Flow Summary: ER admissions, OPD admissions, total admissions, total discharges, planned discharges, delayed-discharge count, and prolonged-ER count. DAMA totals are derived from child entries in the React state.
-
-The current code does not prove how source systems populate the linked Patient Flow Summary or how frequently those values refresh. Metric definitions, time windows, authoritative source systems, rounding, and exception treatment **Require confirmation** from operational and data owners.
-
-## 14. Business Logic and Lifecycle Rules
-
-### 14.1 Draft creation
-
-Starting a shift creates a Handover Report parent in Draft status and then creates or links its Patient Flow Summary. If Patient Flow creation fails, the code attempts to remove the newly created parent so the user is not left with an unusable report.
-
-The application enforces one draft for the same duty manager, business unit, shift, and calendar date. If a matching draft exists, it opens that report instead of creating another.
-
-### 14.2 Draft persistence and recovery
-
-Draft content is saved to Dataverse throughout the editing process. A local-storage key provides additional in-browser recovery. The current implementation reconstructs active drafts from Dataverse, including retained parent and child record identifiers, and then allows editing to continue.
-
-A draft remains Draft until final submission. Opening, reviewing, closing, or navigating away does not complete or acknowledge it. The duty manager may reopen it as many times as required.
-
-### 14.3 Draft deletion
-
-Deleting a draft removes related child data, Patient Experience, Patient Flow Summary, Coverage Shortages, the parent report, and local draft storage. This is an intentional destructive user action and should be included in user acceptance testing and support guidance.
-
-### 14.4 Validation before submission
-
-Submission validation includes:
-
-- Report identity and required general fields.
 - Staffing adequacy.
-- Shortage types and shortage summary when staffing is Short.
-- Hot-issues narrative length.
-- Complaint and OVR summaries when corresponding counts are greater than zero.
-- Government findings when a visit is recorded.
-- Night medical-meeting narrative when the meeting is Done.
-- Early-discharge rows when Night planned discharges are greater than zero.
-- Required patient, type, code, area, description, actions, status, and pending-action fields across detailed sections.
+- Shortage type, such as Nursing, Medical, or Support Staff.
+- Coverage shortages.
+- Shortfall summary.
 
-### 14.5 Submission
+When staffing is marked Short, the Duty Manager provides the shortage classification and explanation so the next shift understands the operational impact.
 
-Before submission, the application checks for a duplicate report and verifies that the previous handover for the business unit has been acknowledged. It then saves the parent and all child sections. Only after persistence succeeds does it set the parent to Completed. It removes the local draft and protects the submitted identifier from delayed autosave callbacks.
+### 7.5 Operations
 
-### 14.6 Acknowledgment
+Operations records disruption or reduced functionality in hospital support and service areas.
 
-Only a submitted report can be acknowledged. A draft is explicitly rejected by the acknowledgment guard. Successful acknowledgment records the timestamp, changes the report status to Acknowledged, retains the record as active, and closes the viewer. If persistence fails, the report remains open and no success state is shown.
+Information includes:
 
-### 14.7 Previous handover rule
+- Service functionality.
+- Affected service.
+- Issue type.
+- Description and operational impact.
+- Resolution status.
+- Pending actions or issues.
 
-The previous-handover query finds the latest report for the same business unit before the current report date, considering Completed and Acknowledged reports and excluding legacy initiated drafts. Submission is blocked when the applicable previous handover has not been acknowledged.
+Affected services include:
 
-Whether same-day earlier shifts must also be included in this rule **Requires confirmation**, because the current query boundary is based on report date.
+- Laboratory.
+- Radiology.
+- IT.
+- CSSD.
+- Pharmacy.
+- Facility services.
 
-### 14.8 Carry-forward
+Typical issue types include equipment breakdown, utility failure, power, air-conditioning, water, and oxygen-related issues. The Duty Manager records whether the service is fully functional, partially affected, or unavailable, together with what has been done and what remains pending.
 
-The application reads unresolved administrative and operational items from the previous report and presents them for acceptance. Accepted items create new child rows under the current report. The implementation does not store an explicit source-to-destination relationship or update the prior item when copied. Traceability and closure ownership **Require confirmation**.
+### 7.6 Patient Experience
 
-## 15. Business Unit and Country Logic
+Patient Experience records issues that may affect service quality, reputation, regulatory follow-up, or patient satisfaction.
 
-The current active business-unit choice values are:
+It includes:
 
-| Business unit | Choice value | Country behavior |
-|---|---:|---|
-| AMH | 983080000 | Egypt |
-| ASH | 983080001 | Egypt |
-| SMH | 983080002 | Egypt |
-| AHJ | 983080003 | Saudi Arabia |
+- Number of complaints.
+- Complaint summary when complaints exist.
+- Number of OVRs.
+- OVR summary when records exist.
+- Government or regulatory visit status.
+- Visit findings.
+- Corrective or follow-up actions.
 
-The country rule is small and direct: AHJ is treated as Saudi Arabia; all other active business units are treated as Egypt. This controls patient-source options and patient lookup bindings.
+The information is entered by the Duty Manager based on the shift’s activity. Required explanations ensure that a reported count is supported by useful context.
 
-AHJ exposes ER, Saudi outpatient, and Saudi inpatient options. Egypt units expose ER, Egypt outpatient, and Egypt inpatient options. Event classification can further constrain the source: an ER code uses ER, while a Hospital code uses the country-specific inpatient source.
+### 7.7 Night Shift, Medical Meeting, and Early Discharge
 
-There is no implemented first-load global scope modal or persistent global country selector. Any future scope feature should reuse a single mapping function and must not introduce country values that conflict with the business-unit rule without an approved migration design.
+Night functionality supports overnight control and preparation for the following operational day.
+
+The Night Duty Manager records whether the medical meeting took place and provides a meaningful summary. When planned discharges are expected, the application supports selection of the relevant inpatient and identifies whether the discharge is Early or Planned.
+
+The selected patient is linked to the next-day discharge process where applicable. This helps the hospital prepare discharge activities, make beds available earlier, coordinate required actions, and give the Morning team a clear starting position.
+
+The daily Early Discharge list is expected to be available through the connected hospital process. The Duty Manager completes the patient-level selection and relevant details.
+
+### 7.8 Summary and Submission
+
+The Summary consolidates the report before final submission. It allows the Duty Manager to review the handover as one operational record rather than as separate screens.
+
+Before submission, the application checks that required information has been completed. Examples include explanations for shortages, complaints, OVRs, government findings, delayed or prolonged cases, pending actions, event details, and Night information where applicable.
+
+A report remains a Draft until the Duty Manager submits it at the end. The draft can be closed and reopened as often as needed. Closing or leaving the report does not submit it.
+
+### 7.9 Handover Review and Acknowledgment
+
+After submission, the report becomes available for review. The incoming Duty Manager reads the completed handover and acknowledges it.
+
+Acknowledgment:
+
+- Confirms that the report was reviewed.
+- Records the incoming manager’s acceptance of the handover.
+- Retains an acknowledgment timestamp.
+- Supports accountability and continuity between shifts.
+
+A Draft cannot be acknowledged because it has not yet been submitted. After acknowledgment is successfully recorded, the report viewer closes automatically.
+
+### 7.10 Operations Dashboard
+
+The Operations Dashboard provides a management and operational view across submitted handovers.
+
+It supports:
+
+- Date filtering.
+- Shift filtering.
+- Business-unit filtering.
+- Duty Manager filtering.
+- Operational indicators.
+- Business-unit comparison.
+- Major-event monitoring.
+- Pending-issue monitoring.
+- Acknowledgment visibility.
+- Report and export functions.
+- Access to related Power BI information where configured.
+
+The dashboard allows users to move from an individual handover to a broader operational view. The intended dashboard access group should follow the approved operations access list and is separate from the general Duty Manager process where required.
 
 
-## 16. User Workflows
+## 8. Automated and Manual Information
 
-### 16.1 Start or continue a handover
+Duty Manager combines information retrieved from connected records with information entered by the Duty Manager. The distinction matters because a retrieved count still needs operational review, while narratives, decisions, ownership, and escalation depend on the manager’s knowledge of the shift.
 
-1. The user opens the application and is identified through the available user context.
-2. The user selects the business unit and begins a shift.
-3. The application checks for an existing matching draft.
-4. If a draft exists, it opens for continuation.
-5. If no draft exists, the application creates the Draft parent and Patient Flow record.
-6. The user moves through the report sections while changes autosave.
+| Information or KPI | Source | Entry method | Purpose |
+|---|---|---|---|
+| Report date, business unit, shift, and Duty Manager | Report setup and user selection | Established when the report starts | Identifies the handover |
+| ER admissions | Patient Flow record | Automatically retrieved where available | Shows ER contribution to admissions |
+| OPD admissions | Patient Flow record | Automatically retrieved where available | Shows OPD contribution to admissions |
+| Total admissions | Patient Flow record | Automatically retrieved where available | Shows total incoming patient activity |
+| Total discharges | Patient Flow record | Automatically retrieved where available | Shows completed patient movement |
+| Planned discharges | Patient Flow record | Automatically retrieved where available | Supports planned capacity release |
+| Delayed discharge count | Patient Flow record | Automatically retrieved where available | Highlights discharge barriers |
+| Delayed discharge explanation | Duty Manager knowledge | Manual narrative | Explains causes, action, and escalation |
+| Prolonged ER count | Patient Flow record | Automatically retrieved where available | Highlights ER delay pressure |
+| Prolonged ER explanation | Duty Manager knowledge | Manual narrative | Explains affected cases and action |
+| ER volume | Shift operational information | Manual in the current application | Shows overall ER demand |
+| Unplanned discharges | Shift operational information | Manual | Completes the discharge picture |
+| Theatre activity | Shift operational information | Manual | Records theatre workload and exceptions |
+| Bed utilization | Shift operational information | Manual in the current application | Shows capacity pressure by clinical area |
+| Staffing adequacy | Duty Manager assessment | Manual | Records whether coverage is sufficient |
+| Coverage shortage and shortfall | Duty Manager assessment | Manual | Identifies the affected staff group and impact |
+| DAMA patients | Patient search and Duty Manager entry | Patient selected; details entered manually | Records cases, response, and retention |
+| DAMA totals | Entered DAMA cases | Automatically calculated | Supports dashboard and summary indicators |
+| Hospital Events | Patient sources and Duty Manager entry | Patient selected where applicable; event details manual | Records significant incidents |
+| Administrative Issues | Duty Manager entry and reference categories | Manual | Records coordination and pending matters |
+| Operations issues | Duty Manager entry | Manual | Records service disruption and response |
+| Patient Experience | Duty Manager entry | Manual | Records complaints, OVRs, visits, and actions |
+| Night medical meeting | Duty Manager entry | Manual | Records completion and key outcomes |
+| Early/Planned Discharge patient | Inpatient source and Duty Manager selection | Patient retrieved; selection and reason manual | Supports next-day discharge preparation |
+| Hot Issues | Duty Manager judgment | Manual | Highlights the most important priorities |
+| Pending issues from previous handover | Previous submitted report | Automatically retrieved; user chooses carry-forward | Maintains continuity |
+| Major incident count | Hospital Events | Automatically calculated | Summarizes high-severity events |
+| Pending issue count | Administrative and Operations records | Automatically calculated | Shows unresolved workload |
+| Net patient flow | Admissions and discharges | Automatically calculated | Indicates whether incoming demand exceeds completed discharge |
+| Acknowledgment time | Submitted report and acknowledgment | Automatically recorded and calculated | Measures handover completion and response |
 
-### 16.2 Close and resume a draft
+Where a Patient Flow count is retrieved, the connected source process that populates the Patient Flow record should remain aligned with the hospital’s approved KPI definition. If the exact upstream source is needed for reporting governance, the **source integration is to be confirmed** with the relevant data owner.
 
-1. The user closes or leaves the report.
-2. The application returns to the relevant navigation state.
-3. The Dataverse parent remains Draft.
-4. The Home screen continues to show the report as a draft.
-5. The user can reopen and edit it until final submission.
+## 9. KPI and Operational Monitoring
 
-Closing is a navigation action. It is not submission, completion, or acknowledgment.
+The application uses operational indicators to help the Duty Manager and management understand the shift’s position. The indicators support decision-making; they do not replace review of the underlying narrative and pending actions.
 
-### 16.3 Submit a handover
+### 9.1 Admissions and ER demand
 
-1. The user reviews the Summary.
-2. The application validates the complete report.
-3. The application checks the preceding handover acknowledgment.
-4. It checks that a duplicate submitted report does not exist.
-5. It persists general information and every child section.
-6. It changes the parent to Completed.
-7. It clears the local draft and displays the submitted confirmation.
+Admissions show the number of patients entering hospital care, with ER and OPD contributions where available. ER volume and prolonged ER cases provide additional context on demand and delay.
 
-If a required save fails, the process must not present a successful final submission.
+**Why it matters:** High demand can affect beds, staffing, diagnostics, theatre activity, and discharge priorities.
 
-### 16.4 Review and acknowledge
+**Population:** Core admission totals are retrieved from the Patient Flow record where available. ER volume and explanatory narratives are completed by the Duty Manager in the current application.
 
-1. The incoming duty manager opens a submitted report.
-2. The report viewer displays the complete handover.
-3. The user selects Acknowledge.
-4. The application verifies that the record is submitted.
-5. It writes the timestamp and Acknowledged status to Dataverse.
-6. After Dataverse confirms success, the viewer closes automatically.
-7. If the write fails, the viewer stays open and the user can retry.
+### 9.2 Discharges and delayed discharges
 
-### 16.5 Carry an unresolved issue forward
+Total and Planned Discharges show completed and expected patient movement. Delayed Discharges identify cases that remain in hospital because a required action, service, decision, or arrangement is outstanding.
 
-1. The new report loads unresolved administrative and operational items from the preceding report.
-2. The user reviews the offered items.
-3. Accepted items are copied into new records belonging to the current report.
-4. The user may update the new records during the current shift.
+**Why it matters:** Discharge performance directly affects bed availability, waiting patients, and hospital flow.
 
-### 16.6 Add a Night early-discharge patient
+**Population:** Counts are retrieved where available; reasons, escalation, and pending actions require Duty Manager explanation.
 
-1. The Night report determines the next-day target date.
-2. The app retrieves the active Draft Early Discharge master.
-3. The user searches the country-appropriate inpatient source.
-4. The app creates the Early Discharge patient row.
-5. It creates and links the Patient Discharge row.
-6. If linkage fails, the child addition is rolled back where possible.
+### 9.3 Prolonged ER cases
 
-## 17. Automation and Scheduled Processes
+This indicator identifies patients whose ER journey has exceeded the expected operational threshold.
 
-The application depends on several behaviors that appear to be automated outside this repository:
+**Why it matters:** Prolonged ER stays may signal capacity constraints, pending diagnostics, specialty review delays, or inpatient-bed limitations.
 
-| Process | Evidence in application | Handover status |
+**Population:** The count can be retrieved through Patient Flow. The operational explanation is manual.
+
+### 9.4 Theatre activity
+
+Theatre indicators cover total, pre-operative, post-operative, postponed, and cancelled cases.
+
+**Why it matters:** Theatre exceptions can affect beds, patient experience, clinical scheduling, and next-shift workload.
+
+**Population:** Entered by the Duty Manager from available shift information.
+
+### 9.5 DAMA and retention
+
+DAMA records identify patients leaving or considering leaving against medical advice. Retention information records the outcome of the response.
+
+**Why it matters:** These cases have clinical, experience, documentation, and operational significance.
+
+**Population:** Patient cases and actions are entered by the Duty Manager. Totals and retention indicators are calculated from those entries.
+
+### 9.6 Bed utilization
+
+Utilization records pressure across relevant clinical areas such as inpatient wards and critical-care units.
+
+**Why it matters:** High utilization affects admissions, transfers, staffing, elective activity, and discharge planning.
+
+**Population:** Manually recorded in the current application based on the approved operational source.
+
+### 9.7 Staffing and coverage
+
+Staffing is recorded as Adequate or Short. A shortage is further described by staff group and operational impact.
+
+**Why it matters:** Staffing gaps may require redeployment, escalation, service adjustment, or management action.
+
+**Population:** Duty Manager assessment and entry.
+
+### 9.8 Major incidents and pending issues
+
+The dashboard counts Major events and unresolved administrative or operational issues.
+
+**Why it matters:** These indicators focus attention on severity and unfinished actions across submitted reports.
+
+**Population:** Automatically calculated from the structured report entries.
+
+### 9.9 Net patient flow
+
+Net flow compares admissions with discharges.
+
+**Why it matters:** A positive net inflow can indicate increasing demand on available capacity.
+
+**Population:** Automatically calculated from the recorded admissions and discharges.
+
+### 9.10 Acknowledgment monitoring
+
+Acknowledgment status and elapsed time show whether the incoming Duty Manager formally received the handover.
+
+**Why it matters:** It supports accountability and identifies incomplete handover transitions.
+
+**Population:** Automatically recorded when acknowledgment succeeds.
+
+### 9.11 Night-specific monitoring
+
+Night medical-meeting information and next-day discharge planning apply to Night reports.
+
+**Why it matters:** They prepare the hospital for Morning activity and improve visibility of expected bed release.
+
+**Population:** Completed by the Night Duty Manager, using available inpatient and discharge information.
+
+## 10. Business Unit and Country Handling
+
+The application supports four hospital business units.
+
+| Business unit | Country handling | Patient information used |
 |---|---|---|
-| Daily Early Discharge master creation | Code expects a target-date Draft master to exist | **Requires confirmation** |
-| Early Discharge patient count rollup | Generated schema includes a scheduled rollup field | Platform schedule and ownership **Require confirmation** |
-| Patient Flow source population | App reads existing summary values | Source process and refresh frequency **Require confirmation** |
-| Alert generation | App reads alert records | Creation and escalation rules **Require confirmation** |
-| Power BI refresh | Dashboard links to a report | Dataset, gateway, and schedule **Require confirmation** |
+| AHJ | Saudi Arabia | KSA patient and inpatient sources |
+| AMH | Egypt | Egypt patient and inpatient sources |
+| ASH | Egypt | Egypt patient and inpatient sources |
+| SMH | Egypt | Egypt patient and inpatient sources |
 
-No Power Automate definition is included in the repository. The operational handover must identify each external flow by solution, environment, owner, connection owner, trigger, schedule, inputs, outputs, retry policy, monitoring location, and support contact.
+The handover process remains consistent across the four facilities. The main country-specific difference is patient search and linkage.
 
-The rollup for Early Discharge patient count is controlled by Dataverse scheduling. The client cannot force the rollup to execute immediately, so transient differences between child rows and a displayed rollup may occur.
+For AHJ, the application uses the relevant KSA outpatient and inpatient information. For AMH, ASH, and SMH, it uses the corresponding Egypt outpatient and inpatient information. ER patient information is used for ER-related events and DAMA cases.
 
-## 18. Reporting and Export
+This approach gives management a common reporting structure while preserving the correct patient context for each facility.
 
-### 18.1 Handover PDF
+## 11. Data and Integration Overview
 
-The report viewer generates an A4 PDF using jsPDF and AutoTable. The current document includes:
+### 11.1 Solution overview
 
-- Report identity.
-- Executive or hot-issues summary.
-- Patient-flow groups.
-- DAMA information.
-- Night-shift information where applicable.
-- Hospital events.
-- Administrative issues.
-- Operational issues.
-- Patient-experience information.
-- Page footer and page numbering.
+Duty Manager is delivered through Microsoft Power Platform and Power Apps. Dataverse holds the structured handover and related operational records. The application retrieves relevant patient and operational information from connected hospital sources and combines it with the Duty Manager’s shift assessment.
 
-The final field order, branding, sign-off area, privacy classification, and management distribution rules **Require confirmation**.
+The overall information flow is:
 
-### 18.2 Dashboard export
+**Hospital Operational and Patient Sources**  
+→ **Integration and Data Processing**  
+→ **Dataverse**  
+→ **Duty Manager Application**  
+→ **Submitted and Acknowledged Handover**  
+→ **Operations Dashboard and Extracted Report**
 
-The Operations Dashboard includes a button labeled “Export Excel,” but the implementation generates a UTF-8 CSV file. The export reflects the dashboard’s filtered population and includes:
+### 11.2 Purpose of each layer
 
-- Report ID and name.
-- Report and creation dates.
-- Business unit and shift.
-- Duty manager.
-- Report status.
-- Acknowledgment timestamp and minutes.
-- Hot issues.
-- Major incident count.
-- Pending issue count.
-- ER and inpatient DAMA counts.
-
-CSV files open in Excel, but they are not native Excel workbooks. If formatting, multiple sheets, formulas, charts, protection, or data types are required, native XLSX generation must be specified and developed.
-
-### 18.3 Reporting decisions required
-
-The business owner must confirm:
-
-- Whether exports are needed daily, weekly, monthly, or for a custom date range.
-- Whether exports must always reflect the dashboard’s selected filters.
-- Which user roles may export patient or operational information.
-- The exact fields, column order, labels, calculations, and time zone.
-- Required formats: CSV, XLSX, PDF, or a combination.
-- Whether one file should contain details, summaries, or both.
-- Required branding and confidentiality labels.
-- File naming and versioning.
-- Distribution, retention, and audit requirements.
-- Whether PDF acknowledgment evidence must be included.
-
-Until confirmed, reporting remains the only primary outstanding business item.
-
-## 19. Security and Access Control
-
-Authentication is provided through the Power Apps and Dataverse connection context. Authorization ultimately depends on Power Platform sharing and Dataverse privileges.
-
-**Security configuration is managed in the Power Platform environment and requires environment-level confirmation.**
-
-The repository does not contain the environment’s security roles, team membership, application sharing list, field-security profiles, business-unit hierarchy, audit policy, or Power BI permissions. The following access model therefore **Requires confirmation**:
-
-- Who may start and edit a handover.
-- Whether duty managers are restricted to their own business unit.
-- Who may delete drafts.
-- Who may review and acknowledge submitted reports.
-- Who may view the Operations Dashboard.
-- Who may export data.
-- Who may view patient-identifiable information.
-- Whether the dashboard is intended for operations leadership rather than duty managers.
-- Who administers reference data, users, alerts, and mappings.
-- Whether service accounts own any external automation.
-
-The Operations Dashboard has no explicit application-level role guard in the current code. If it must be available to a separate audience, enforce access through an approved combination of app sharing, Dataverse roles, row-level access, and an application-level entitlement check.
-
-### 19.1 Privacy and audit considerations
-
-The application processes patient references and operational narratives. Production readiness should confirm least-privilege access, audit logging, data retention, export controls, non-production masking, and approved incident-response procedures. These controls cannot be verified from the repository.
-
-## 20. Deployment and Environment Configuration
-
-### 20.1 Build and package
-
-The production package is generated with the Vite build command and written to dist. The configured entry point is index.html. A clean production build was successfully completed during this handover review.
-
-### 20.2 Power Apps deployment
-
-The application is configured with app ID bb72cb69-df81-4520-ad19-da8de18c6f49 in environment cd78a59b-e16f-e4aa-b0a1-8e450a70ed56.
-
-The expected Power Apps play URL is:
-
-https://apps.powerapps.com/play/e/cd78a59b-e16f-e4aa-b0a1-8e450a70ed56/a/bb72cb69-df81-4520-ad19-da8de18c6f49
-
-The exact currently published version and production availability **Require confirmation**. A recent push attempt returned HTTP 403 with PowerAppsNoAccess for the authenticated user, so source changes cannot be published until an authorized account has access to the app and environment.
-
-### 20.3 Release procedure
-
-1. Review the Git working tree and staged changes.
-2. Run the targeted lifecycle tests.
-3. Run the production build.
-4. Review lint findings and waive or remediate them under an agreed policy.
-5. Confirm generated Dataverse contracts match the target environment.
-6. Confirm the Power Apps CLI is authenticated with the intended tenant and account.
-7. Confirm the account has edit access to the Code App and required environment privileges.
-8. Push the Code App using the approved release command.
-9. Verify the published version in Power Apps.
-10. Run smoke tests for draft create/resume/delete, submission, report review, acknowledgment, PDF, dashboard filters, and export.
-11. Record the Git commit, deployment time, deployer, and validation evidence.
-
-### 20.4 Rollback
-
-A rollback procedure is not defined in the repository and **Requires confirmation**. At minimum, the team should retain the last known-good Git commit, record exported app/version information where supported, and define how schema or automation changes are reversed without data loss.
-
-
-## 21. Completed Work
-
-The following work is complete in the current implementation:
-
-- React/TypeScript Code App foundation and Power Apps configuration.
-- Cross-environment generated Dataverse service integration.
-- Duty-manager, business-unit, date, and shift report identity.
-- Draft parent creation with Patient Flow child creation and rollback protection.
-- Dataverse and local draft recovery.
-- Reopening and closing drafts without changing their Draft status.
-- Duplicate-draft and duplicate-submission prevention.
-- Section autosave and delayed-autosave protection after submission.
-- General, Events, Administrative, Patient Flow, Operations, Experience, and Summary screens.
-- Night medical-meeting and early-discharge workflow.
-- Country-specific patient source routing for AHJ and Egypt business units.
-- Full validation before submission.
-- Previous-handover acknowledgment requirement.
-- Submitted report viewer.
-- Acknowledgment timestamp and status persistence.
-- Automatic report-viewer close after successful acknowledgment.
-- PDF report generation.
-- Operations Dashboard filtering and operational metrics.
-- CSV export using the selected dashboard population.
-- Carry-forward of unresolved administrative and operational issues.
-- Draft deletion across parent and related child records.
-- Six targeted lifecycle regression tests.
-- Successful production build.
-
-## 22. Current Outstanding Item
-
-### Final report structure and export requirements
-
-The application development is complete based on the requirements currently available. The remaining primary item is business confirmation of the final reporting structure.
-
-The business owner should provide or approve:
-
-1. The intended report audience.
-2. Whether the report is used per shift, daily, weekly, monthly, or on demand.
-3. Whether users need a custom date range.
-4. Whether exported results must reflect every active dashboard filter.
-5. The exact data fields and calculations.
-6. Required grouping, sorting, totals, and comparisons.
-7. Whether patient-level detail is permitted.
-8. Required formats: PDF, CSV, XLSX, or a combination.
-9. Branding, confidentiality, approval, and acknowledgment evidence.
-10. Distribution, file naming, retention, and audit expectations.
-
-Once this structure is confirmed, the existing output can be adjusted and validated against an approved sample. No other primary development blocker was identified in the reviewed scope.
-
-## 23. Dependencies, Risks, and Limitations
-
-| Item | Impact | Required action |
-|---|---|---|
-| Power Apps access is missing for the current CLI identity | Prevents publishing | Grant app/environment access or authenticate with the authorized account |
-| Final report specification is unconfirmed | Output may not match management expectations | Approve a sample layout and export rules |
-| Shift schedule conflict | Incorrect default shift may be selected | Confirm authoritative hours and update one shared rule |
-| External automations are absent from source control | Support cannot trace master creation, alerts, or source refresh | Inventory flows, owners, connections, and monitoring |
-| Security configuration is external | Access cannot be validated from code | Review app sharing, Dataverse roles, teams, and Power BI access |
-| Operations Dashboard has no code-level role check | Unintended users may see the page if environment sharing is broad | Confirm audience and enforce entitlement |
-| CSV is labeled Export Excel | User expectation may differ from actual file type | Rename the control or implement native XLSX |
-| Large DutyManager component | Changes carry regression risk | Refactor incrementally with tests |
-| Legacy and backup files are present | Maintainers may edit the wrong implementation | Archive or clearly label them |
-| Lint reports 278 issues | Quality gate is not clean | Scope lint to active source, exclude generated files, and remediate agreed findings |
-| Same-day previous-shift acknowledgment is unclear | Submission control may not match operations | Confirm chronological rule |
-| Carry-forward lacks explicit lineage | Historical traceability is limited | Confirm whether source references are required |
-| Rollup values may be delayed | Counts may temporarily differ | Document refresh expectations |
-| Live end-to-end Dataverse validation is not recorded | Environment behavior may differ from static checks | Run a production-like acceptance test |
-
-## 24. Recommended Next Steps
-
-### Immediate business actions
-
-1. Approve the final report and export structure.
-2. Confirm the Operations Dashboard audience and provide the current access list.
-3. Confirm the authoritative shift times.
-4. Confirm whether acknowledgment checks must include same-day earlier shifts.
-5. Confirm whether carry-forward items require source-report traceability.
-
-### Immediate technical actions
-
-1. Review and commit the staged lifecycle changes.
-2. Give the deployment account access to the configured Power Apps application and environment.
-3. Inventory external flows, dataflows, Power BI assets, service accounts, and connection owners.
-4. Run an end-to-end acceptance test using production-like Dataverse data.
-5. Record the deployed Git commit and Power Apps version.
-
-### Post-release improvements
-
-1. Split the main component into screen components, hooks, validators, data repositories, and report services.
-2. Add integration tests for submission rollback, Dataverse failures, and carry-forward.
-3. Add role-aware navigation for the Operations Dashboard after the access model is approved.
-4. Align the export label with its actual format or implement native XLSX.
-5. Establish a lint baseline that excludes generated and backup code, then reduce active-source findings.
-6. Archive obsolete static assets and earlier duplicate files.
-7. Add release, rollback, support, and monitoring runbooks to the repository.
-
-## 25. Management Handover Summary
-
-The Duty Manager application is functionally complete for the currently defined operational handover process. It provides persistent drafts, structured section capture, validated final submission, submitted-report review, acknowledgment, dashboard monitoring, PDF generation, and filtered export. Recent lifecycle changes ensure that an initiated report stays Draft until final submission and that a reviewed report closes only after acknowledgment is successfully stored.
-
-The source of truth is the React/TypeScript application under src/ in the GitHub repository at https://github.com/MaryamEzat/Duty-Manager. The solution builds successfully and the targeted lifecycle tests pass. Publishing remains dependent on correcting Power Apps access for the deployment identity.
-
-Management approval is required for the final report structure and export operating model. Environment owners must also confirm security, external automation, Power BI ownership, connections, and production release controls. Once those confirmations are recorded and the authorized account publishes the build, the solution can proceed through final user acceptance and operational release.
-
----
-
-# Appendix A — Operational Choice Reference
-
-| Area | Available values |
+| Layer | Business purpose |
 |---|---|
-| Shift | Morning, Evening, Night |
-| Report state | Draft, Completed, Acknowledged |
-| Severity | Low, Moderate, Major |
-| Resolution | Pending, In Progress, Resolved |
-| Functionality | Partial Outage, Total Outage, Fully Functional |
-| Affected service | Laboratory, Radiology, IT, Facility, Pharmacy, CSSD |
-| Operational issue | Equipment Breakdown, Utility Failure, Power, AC, Water, O2 |
-| Staffing | Adequate, Short |
-| Shortage type | Nursing, Medical, Support Staff |
-| Government visit | Yes, No |
-| Early-discharge type | Early, Planned |
+| Hospital operational and patient sources | Provide patient identity and available operational activity information |
+| Integration and data processing | Make approved information available in the form required by the application |
+| Dataverse | Store handovers, section details, patient references, statuses, actions, and acknowledgment |
+| Duty Manager application | Guide the manager through review, entry, validation, submission, and acknowledgment |
+| Dashboard and extracted report | Present operational visibility and support management reporting |
 
-# Appendix B — Minimum Production Acceptance Checklist
+### 11.3 Key data areas
 
-- [ ] Deployment account can access the target environment and app.
-- [ ] Generated service contracts match the target Dataverse schema.
-- [ ] Duty manager can start a report.
-- [ ] Existing matching draft reopens instead of duplicating.
-- [ ] Draft can be closed and reopened without becoming submitted.
-- [ ] Autosaved child records reload correctly.
-- [ ] Draft deletion removes expected related records.
-- [ ] Submission validation blocks incomplete sections.
-- [ ] Previous-handover acknowledgment rule behaves as approved.
-- [ ] Successful submission creates no duplicate child rows.
-- [ ] Late autosave cannot revert or alter the submitted report.
-- [ ] Draft cannot be acknowledged.
-- [ ] Submitted report acknowledgment writes status and timestamp.
-- [ ] Viewer closes only after acknowledgment succeeds.
-- [ ] Carry-forward works for unresolved administrative and operational items.
-- [ ] Egypt and AHJ patient lookups use the correct source tables.
-- [ ] Night early-discharge patient creation and linkage succeed.
-- [ ] PDF content matches the approved report structure.
-- [ ] Dashboard filters affect cards, queues, and export consistently.
-- [ ] Export contains the approved fields and format.
-- [ ] Operations Dashboard is available only to the approved audience.
-- [ ] Power BI link and permissions work.
-- [ ] Alerts display and ownership are verified.
-- [ ] Audit, privacy, retention, and support controls are approved.
-
-# Appendix C — Validation Evidence
-
-| Check | Result |
+| Data area | What it stores from a business perspective |
 |---|---|
-| Production build | Passed; Vite built 410 modules in approximately 5.84 seconds |
-| Draft lifecycle tests | Passed; 6 of 6 |
-| Lint | Not clean; 278 findings, including generated and backup files |
-| Live Power Apps push | Blocked by HTTP 403 PowerAppsNoAccess |
-| Live end-to-end Dataverse acceptance | **Requires confirmation** |
-| Final management report approval | **Requires confirmation** |
+| Handover Report | Date, shift, business unit, Duty Manager, status, hot issues, and acknowledgment |
+| Patient Flow | Admissions, discharges, delays, theatre, DAMA, utilization, and staffing |
+| Hospital Events | Significant events, patient, location, severity, action, and status |
+| Administrative Issues | Coordination matters, current status, and pending actions |
+| Operations | Service disruption, affected area, impact, resolution status, and next action |
+| Patient Experience | Complaints, OVRs, regulatory visits, findings, and corrective action |
+| Early Discharge | Next-day Early or Planned Discharge patients and related information |
+| Alerts | Operational alerts displayed to the user |
 
-# Appendix D — Ownership Information to Complete
+### 11.4 Related reporting
 
-The following ownership fields should be completed during formal handover:
+The Operations Dashboard provides application-based monitoring, and a related Power BI link is available where configured. Reporting access and distribution should follow the approved management and operations access model.
 
-| Responsibility | Named owner |
+## 12. Reporting and Export
+
+Reporting is the current focus because the final extracted-report structure is awaiting confirmation.
+
+### 12.1 What currently exists
+
+The application currently provides:
+
+- A handover report that can be generated as a PDF.
+- A report viewer for submitted handovers.
+- An Operations Dashboard with filters and operational indicators.
+- A dashboard export of the filtered report population.
+- Report status and acknowledgment information.
+- Access to related Power BI information where configured.
+
+The current outputs demonstrate that the required data can be presented and extracted. The final business format has not yet been approved.
+
+### 12.2 Current dashboard filtering
+
+The dashboard can organize information by:
+
+- Date.
+- Shift.
+- Business unit.
+- Duty Manager.
+
+It also presents operational signals such as major events, pending issues, patient-flow measures, DAMA activity, report status, and acknowledgment.
+
+### 12.3 Decision required
+
+**FINAL REPORT STRUCTURE IS AWAITING CONFIRMATION.**
+
+The business owner needs to confirm:
+
+1. **Audience:** Who will receive or use the report?
+2. **Frequency:** Is it required per shift, daily, weekly, monthly, or for a custom date range?
+3. **Sections:** Which handover areas must appear?
+4. **KPIs:** Which indicators and totals are required?
+5. **Detail level:** Should it include patient-level information or summary information only?
+6. **Filters:** Should the extracted report always reflect the dashboard filters selected by the user?
+7. **Format:** Is the preferred output PDF, Excel, or both?
+8. **Grouping and order:** How should facilities, dates, shifts, issues, and KPIs be organized?
+9. **Management summary:** Is an executive summary, exception page, or trend section required?
+10. **Branding:** What title, logo, confidentiality label, and standard footer are required?
+11. **Acknowledgment:** Should the report show acknowledgment status, timestamp, and Duty Manager details?
+12. **Distribution:** Will users download it on demand, or will it be distributed through an agreed reporting process?
+
+### 12.4 Completion approach
+
+After the approved sample or specification is received:
+
+1. Compare the approved structure with the current report and export.
+2. Adjust the layout, sections, fields, filters, and format where required.
+3. Validate the result with representative business-unit and shift data.
+4. Obtain formal approval from the report owner.
+5. Include the approved output in final acceptance and handover.
+
+## 13. Completed Development
+
+Development has delivered the following business capabilities.
+
+### Handover lifecycle
+
+- Start a report for a business unit and shift.
+- Continue an existing matching draft.
+- Save work during completion.
+- Close and reopen a draft without submitting it.
+- Delete an unwanted draft.
+- Review the complete report.
+- Submit the final handover.
+- Review and acknowledge the previous handover.
+
+### Operational information
+
+- General and Hot Issues.
+- Hospital Events.
+- Administrative Issues.
+- Patient Flow.
+- Operations and service functionality.
+- Patient Experience.
+- Night medical-meeting information.
+- Early and Planned Discharge support.
+
+### Patient information
+
+- ER patient search.
+- Egypt outpatient and inpatient search.
+- KSA outpatient and inpatient search for AHJ.
+- Patient linkage to events, DAMA cases, and Early Discharge where applicable.
+
+### Patient Flow and monitoring
+
+- Admissions and discharge information.
+- Delayed Discharge and prolonged ER information.
+- Theatre activity.
+- DAMA entry, totals, and retention indicators.
+- Bed-utilization capture.
+- Staffing adequacy and coverage shortage.
+- Dashboard operational indicators.
+
+### Continuity and accountability
+
+- Draft remains open until final submission.
+- Submitted report becomes available for review.
+- Acknowledgment and timestamp are retained.
+- Relevant unresolved issues can carry forward.
+- Duplicate report safeguards are applied.
+- Required explanations and pending actions are validated.
+
+### Reporting and visibility
+
+- Handover PDF.
+- Report viewer.
+- Operations Dashboard.
+- Date, shift, business-unit, and Duty Manager filters.
+- Current export capability.
+- Related Power BI access where configured.
+
+### User experience
+
+- Structured navigation through the handover.
+- Clear status between Draft, Completed, and Acknowledged.
+- Summary before submission.
+- Automatic close after successful acknowledgment.
+- Interface behavior suitable for the application’s supported screen sizes.
+
+## 14. Current Outstanding Items
+
+### Primary outstanding item
+
+The final structure and content of the extracted or generated report must be confirmed by the business owner.
+
+This confirmation should provide:
+
+- An approved sample or layout.
+- Required audience and reporting period.
+- Required sections, fields, and KPIs.
+- Required grouping and field order.
+- Required level of patient detail.
+- Dashboard filter behavior.
+- Preferred output format.
+- Branding and management-summary requirements.
+- Required acknowledgment information.
+
+After this decision, the existing report/export can be adjusted if necessary and taken through final approval.
+
+No unrelated codebase observations should be treated as project blockers. The project status remains **Development Completed**.
+
+## 15. Next Steps
+
+1. Receive and confirm the required report structure.
+2. Confirm the required report fields, KPIs, grouping, and layout.
+3. Confirm the export format and reporting period.
+4. Confirm whether selected dashboard filters must apply to the report.
+5. Adjust the current report or export where required.
+6. Validate the output against an approved sample and representative data.
+7. Obtain final business acceptance and sign-off.
+8. Proceed with final release and management handover as applicable.
+
+## 16. Management Handover Summary
+
+| Item | Management handover position |
 |---|---|
-| Business sponsor | **Requires confirmation** |
-| Product owner | **Requires confirmation** |
-| Duty Manager process owner | **Requires confirmation** |
-| Operations Dashboard owner | **Requires confirmation** |
-| Power Platform environment administrator | **Requires confirmation** |
-| Dataverse schema owner | **Requires confirmation** |
-| Power Automate owner | **Requires confirmation** |
-| Power BI owner | **Requires confirmation** |
-| Application support lead | **Requires confirmation** |
-| Release approver | **Requires confirmation** |
-| Information security approver | **Requires confirmation** |
-| Data privacy owner | **Requires confirmation** |
+| **Project** | Duty Manager |
+| **Purpose** | Structured hospital Duty Manager shift handover and operational monitoring |
+| **Hospitals / business units** | AHJ, AMH, ASH, and SMH |
+| **Current status** | **Development Completed** |
+| **Current phase** | Final report structure confirmation and reporting alignment |
+| **Completed capabilities** | Draft-to-submission handover lifecycle; General, Events, Administrative Issues, Patient Flow, Operations, Patient Experience, Night, and Early Discharge functions; patient lookup; acknowledgment; carry-forward; dashboard; current reporting and export |
+| **Primary outstanding item** | Final extracted/generated report structure confirmation |
+| **Next action** | Obtain the approved report structure, adjust the existing output if required, validate it, and complete sign-off |
+| **Source repository** | https://github.com/MaryamEzat/Duty-Manager |
+
+Duty Manager provides the hospital with a consistent operational handover record and a clear transfer of accountability between shifts. The application has been developed and the required business areas are in place. The project is now waiting for the business decision that defines the final management report.
+
+Once that decision is received, the team can align the output, validate it against the approved example, and complete final acceptance and handover.

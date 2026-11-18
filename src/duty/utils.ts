@@ -6,20 +6,37 @@ export function toLocalInput(date: Date) {
   return clone.toISOString().slice(0, 16)
 }
 
+// Business shift windows: Morning 08:00-14:00, Evening 14:00-20:00, Night 20:00-08:00 (crosses midnight).
+export const shiftWindows: Record<Shift, string> = { Morning: '08:00-14:00', Evening: '14:00-20:00', Night: '20:00-08:00' }
+
+export function shiftForDate(date: Date): Shift {
+  const hour = date.getHours()
+  if (hour >= 8 && hour < 14) return 'Morning'
+  if (hour >= 14 && hour < 20) return 'Evening'
+  return 'Night'
+}
+
+// Calendar day ("YYYY-MM-DD") a shift belongs to: a Night shift that started yesterday still
+// belongs to yesterday between 00:00 and 08:00.
+export function shiftBusinessDate(value: string | undefined, shift: Shift) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
+  if (shift === 'Night' && date.getHours() < 8) date.setDate(date.getDate() - 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 export function initialForm(): FormState {
   const date = new Date()
-  let shift: Shift = 'Morning'
-  if (date.getHours() >= 15 && date.getHours() < 23) shift = 'Evening'
-  if (date.getHours() >= 23 || date.getHours() < 7) shift = 'Night'
   return {
-    dmName: '', dmUserId: '', businessUnit: businessUnits[0]?.[0] || '', reportDate: toLocalInput(date), shift,
+    dmName: '', dmUserId: '', businessUnit: businessUnits[0]?.[0] || '', reportDate: toLocalInput(date), shift: shiftForDate(date),
     hotIssues: '', staffAdequacy: '778000001', shortageTypes: [], shortfallSummary: '',
     erVolume: 0, erAdmissions: 0, opdAdmissions: 0, admissions: 0, plannedDischarges: 0, unplannedDischarges: 0, discharges: 0, delayedDischargesCount: 0, prolongedERAdmissionsCount: 0,
     totalORCases: 0, preoperative: 0, postoperative: 0, postponedORCases: 0, cancelledORCases: 0,
     erDama: 0, erDamaRetention: 0, inpDama: 0, inpDamaRetention: 0, closedDama: 0, closedDamaRetention: 0,
-    inpUtilization: 0, icuUtilization: 0, ccuUtilization: 0, picuUtilization: 0, nicuUtilization: 0, cxUtilization: 0, strokeUtilization: 0,
+    inpUtilization: 0, icuUtilization: 0, ccuUtilization: 0, picuUtilization: 0, nicuUtilization: 0, cxUtilization: 0, strokeUtilization: 0, erUtilization: 0,
     delayedDischargesNarrative: '', prolongedERNarrative: '', complaintsCount: 0, complaintsSummary: '', ovrsCount: 0, ovrsSummary: '',
-    govVisit: 'No', govSummary: '', nightMedicalMeeting: '778000000', nightSummary: '',
+    govVisit: 'No', govSummary: '', nightMedicalMeeting: '', nightSummary: '',
   }
 }
 
@@ -68,24 +85,59 @@ export function sameHandover(a: HandoverKey, b: HandoverKey) {
   return sameManager
     && String(a.businessUnit) === String(b.businessUnit)
     && a.shift === b.shift
-    && String(a.reportDate || '').slice(0, 10) === String(b.reportDate || '').slice(0, 10)
+    && shiftBusinessDate(a.reportDate, a.shift) === shiftBusinessDate(b.reportDate, b.shift)
+}
+
+// Signed-in user's systemuserid: drafts belonging to other duty managers are never listed or kept locally.
+let draftOwnerId = ''
+
+function ownsDraft(draft: Pick<DraftRecord, 'dmUserId' | 'draftId'>) {
+  if (!draftOwnerId) return true
+  if (draft.dmUserId) return cleanId(draft.dmUserId) === draftOwnerId
+  // A local draft started before the user was resolved has no owner yet; restored drafts without one are not ours.
+  return !String(draft.draftId).startsWith('dataverse-')
+}
+
+export function setDraftOwner(userId: string) {
+  draftOwnerId = cleanId(userId).toLowerCase()
+  if (!draftOwnerId) return
+  // Earlier versions restored every user's drafts into this browser; drop the ones that belong to someone else.
+  for (const key of draftKeys()) {
+    try {
+      const draft = JSON.parse(localStorage.getItem(key) || 'null')
+      if (draft && !ownsDraft({ dmUserId: cleanId(draft.dmUserId || draft.currentDMUserId || '').toLowerCase(), draftId: String(draft.draftId || key) })) localStorage.removeItem(key)
+    } catch { /* unreadable entry: leave it for normalizeDraft to skip */ }
+  }
+}
+
+function draftKeys() {
+  const keys: string[] = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i)
+    if (key?.startsWith('dm_handover_draft_')) keys.push(key)
+  }
+  return keys
+}
+
+// Drafts store ISO timestamps; older ones used toLocaleString(), which Date can still parse.
+export function timestampValue(value?: string) {
+  const time = Date.parse(String(value || ''))
+  return Number.isNaN(time) ? 0 : time
 }
 
 export function getDrafts() {
   migrateLegacyDraft()
   const drafts: DraftRecord[] = []
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i)
-    if (!key?.startsWith('dm_handover_draft_')) continue
+  for (const key of draftKeys()) {
     try {
       const raw = localStorage.getItem(key)
       if (raw) {
-        const parsed = JSON.parse(raw)
-        drafts.push(normalizeDraft(parsed))
+        const draft = normalizeDraft(JSON.parse(raw))
+        if (ownsDraft({ dmUserId: cleanId(draft.dmUserId).toLowerCase(), draftId: draft.draftId })) drafts.push(draft)
       }
-    } catch {}
+    } catch { /* skip corrupt draft entries */ }
   }
-  return drafts.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+  return drafts.sort((a, b) => timestampValue(b.timestamp) - timestampValue(a.timestamp))
 }
 
 export function validate(form: FormState, events: EventItem[], adminIssues: AdminIssue[], opsIssues: OpsIssue[], damaEntries: DamaEntry[], earlyDischarges: EarlyDischarge[] = []) {
@@ -101,6 +153,7 @@ export function validate(form: FormState, events: EventItem[], adminIssues: Admi
   if (form.complaintsCount > 0 && !form.complaintsSummary.trim()) missing.push('Summary of Complaints')
   if (form.ovrsCount > 0 && !form.ovrsSummary.trim()) missing.push('Summary of OVRs')
   if (form.govVisit === 'Yes' && !form.govSummary.trim()) missing.push('Authority Name & Findings Summary')
+  if (form.shift === 'Night' && !form.nightMedicalMeeting) missing.push('Night Medical Meeting')
   if (form.shift === 'Night' && form.nightMedicalMeeting === '778000000' && form.nightSummary.trim().length < 10) missing.push('Night Meeting Summary')
   if (form.shift === 'Night' && form.plannedDischarges > 0 && earlyDischarges.length === 0) missing.push('Tomorrow Discharge Plan')
   events.forEach((event, index) => {
@@ -150,7 +203,7 @@ export function missingFieldTab(field: string): TabKey {
   if (field.startsWith('Admin Issue ')) return 'admin'
   if (field.startsWith('Ops Issue ')) return 'ops'
   if (['Summary of Complaints', 'Summary of OVRs', 'Authority Name & Findings Summary'].includes(field)) return 'experience'
-  if (['Hot Issues Summary', 'Night Meeting Summary'].includes(field)) return 'summary'
+  if (['Hot Issues Summary', 'Night Medical Meeting', 'Night Meeting Summary'].includes(field)) return 'summary'
   return 'flow'
 }
 
@@ -203,6 +256,7 @@ function normalizeDraft(data: any): DraftRecord {
     nicuUtilization: toNumber(data.nicuUtilization ?? data.nicuUtil ?? base.nicuUtilization),
     cxUtilization: toNumber(data.cxUtilization ?? data.cxUtil ?? base.cxUtilization),
     strokeUtilization: toNumber(data.strokeUtilization ?? data.strokeUtil ?? base.strokeUtilization),
+    erUtilization: toNumber(data.erUtilization ?? base.erUtilization),
     events: data.events || [],
     adminIssues: data.adminIssues || [],
     opsIssues: data.opsIssues || [],
@@ -253,7 +307,7 @@ function migrateLegacyDraft() {
       localStorage.setItem(`dm_handover_draft_${suffix}`, oldRaw)
       localStorage.removeItem('dm_handover_draft')
     }
-  } catch {}
+  } catch { /* keep the legacy key if it cannot be migrated */ }
 }
 
 

@@ -3,19 +3,24 @@ import { Children, cloneElement, createContext, Fragment, isValidElement, useCal
 import {
   adminFallbackOptions, businessUnits, labelFor, resolutionOptions, serviceAffectedOptions, serviceFunctionalityOptions,
   opsIssueOptions, Services, severityOptions, shiftFromValue, shiftMap, shortageOptions, staffOptions,
-  type AdminIssue, type DamaEntry, type DraftRecord, type EarlyDischarge, type EventItem, type FormState, type MainView, type OpsIssue, type PatientArea, type Resolution, type Severity, type Shift, type TabKey,
+  type AdminIssue, type DamaEntry, type DraftRecord, type EarlyDischarge, type EventItem, type FormState, type MainView, type OpsIssue, type PatientArea, type Resolution, type Severity, type Shift, type TabKey, type UtilizationUnit, type PatientCodeSource,
 } from './data'
-import { createDataverseClient, PulseNavigation } from 'pulse-shared-navigation'
-import { MicrosoftDataverseService } from '../generated/services/MicrosoftDataverseService'
+import { accessLevelFor, canSeeCommandCenter as commandCenterFor, loadUserRoles, type AccessLevel } from './roles'
+import { allowDataverseWrites, VIEW_ONLY_MESSAGE } from './dataverse'
+import { computeScorecard, KPI_DEFINITIONS, scorecardColumns, type KpiShift } from './kpis'
+import { addDays, clearCommandCenterData, loadCommandCenterData, reportKey, reportShiftDate } from './commandCenterData'
+import { buildCommandCenterWorkbook, exportFileName, isMajorEvent, PEAK_UNITS, peakUtilization, sumOrNull, type CommandCenterData } from './commandCenterReport'
+import { bundleColumns } from './reportColumns'
+import { buildXlsx } from './xlsx'
 import { downloadReportPdf, type PdfField, type PdfReport, type PdfSection } from './reportPdf'
 import { isRecoverableDraft, isSubmittedReport, restoreDraft } from './drafts'
-import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, missingFieldTab, reportCode, sameHandover, shortDate, shortTime, unwrap, validate } from './utils'
+import { cleanId, compact, displayName, fallbackAlerts, formatDate, getDrafts, initialForm, list, missingFieldTab, reportCode, sameHandover, setDraftOwner, shiftBusinessDate, shiftForDate, shiftWindows, shortDate, shortTime, timestampValue, unwrap, validate } from './utils'
 
-// Pulse is the container for all apps: the shared Pulse navigation opens from the "Pulse Apps" button at
-// the top of our sidebar (same pattern as the other Pulse apps). One client for the app's lifetime.
-const pulseClient = createDataverseClient(MicrosoftDataverseService)
-// This app's Power Apps id (power.config.json appId), so Pulse highlights Duty Manager.
-const DUTY_MANAGER_APP_ID = 'bb72cb69-df81-4520-ad19-da8de18c6f49'
+const eventCodeCache = new Map<string, any[]>()
+
+// How often an open report re-reads the automatic patient-flow counts (the dataflow runs every 30 minutes).
+const AUTO_COUNTS_REFRESH_MS = 5 * 60 * 1000
+type AutoCountsState = { status: 'idle' | 'checking' | 'ready' | 'empty' | 'missing' | 'error'; checkedAt?: string }
 
 type ReportSort = { key: 'date' | 'manager' | 'state' | 'submitted'; dir: 'asc' | 'desc' }
 
@@ -27,7 +32,7 @@ function localDateKey(value?: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-type AlertRow = { id: string; title: string; description: string; severity: string; isRead: boolean; createdOn?: string; reportId?: string }
+type AlertRow = { id: string; title: string; description: string; severity: string; isRead: boolean; createdOn?: string; reportId?: string; businessUnit?: string }
 
 type ReportBundle = { report: any; flow: any[]; flowEntries: any[]; events: any[]; admin: any[]; ops: any[]; experience: any[]; loading?: boolean }
 const governmentVisitOptions: [string, string][] = [['999740000', 'Yes'], ['999740001', 'No']]
@@ -421,7 +426,12 @@ function statusFilters(statuses: string[]): FilterOption[] {
   ]
 }
 
-const patientLine = (name?: string, code?: string, area?: string) => name ? `${name}${code ? ` (${code})` : ''}${area ? ` · ${area}` : ''}` : ''
+const patientAreaLabels: Record<PatientArea, string> = { ER: 'ER', IPD: 'IPD EG', IPD_KSA: 'IPD KSA', OPD_EG: 'OPD EG', OPD_KSA: 'OPD KSA' }
+// A patient's code, or its patient ID when the source has no code for that patient.
+const patientCodeText = (code?: string, source?: PatientCodeSource) => !code ? '' : source === 'id' ? `Patient code not found, patient ID ${code}` : code
+// Patient name for the search box and timelines; the bracketed code is shown only when it is a real patient code.
+const patientDisplay = (name?: string, code?: string, source?: PatientCodeSource) => name ? `${name}${code && source !== 'id' ? ` (${code})` : ''}` : ''
+const patientLine = (name?: string, code?: string, area?: PatientArea, source?: PatientCodeSource) => name ? `${patientDisplay(name, code, source)}${area ? ` · ${patientAreaLabels[area] || area}` : ''}` : ''
 
 function scrollToMissing(field: string) {
   const item = field.match(missingItemPattern)?.[1]
@@ -464,6 +474,11 @@ const compactLayoutStyles = `
 
 export function DutyManager() {
   const [view, setView] = useState<MainView>('home')
+  const [access, setAccess] = useState<{ level: AccessLevel | 'checking' | 'error'; reason?: string; commandCenter?: boolean }>({ level: 'checking' })
+  const canSeeCommandCenter = Boolean(access.commandCenter)
+  // View Access users see every page and report but cannot create, change or delete anything.
+  const readOnly = access.level === 'view'
+  const blockedReadOnly = () => { if (readOnly) setMessage(VIEW_ONLY_MESSAGE); return readOnly }
   const [tab, setTab] = useState<TabKey>('general')
   const [form, setForm] = useState<FormState>(initialForm)
   const [draftId, setDraftId] = useState('')
@@ -494,7 +509,17 @@ export function DutyManager() {
   const [message, setMessage] = useState('')
   const clearMessage = useCallback(() => setMessage(''), [])
   const [pdfOnOpen, setPdfOnOpen] = useState(false)
-  const [pulseOpen, setPulseOpen] = useState(false)
+  // Sections menu (the app's own page links; the suite sidebar belongs to the shared Synapse shell), hidden or shown
+  // from the top-bar button and remembered per browser. Home and Dashboard: open by default, as in Talent Acquisition.
+  // Inside a report the report bar carries the section navigation, so there the menu has its own state, closed by default.
+  const readMenuPref = (key: string, fallback: boolean) => { try { const value = localStorage.getItem(key); return value === null ? fallback : value === '1' } catch { return fallback } }
+  const [appMenuOpen, setAppMenuOpen] = useState(() => readMenuPref('dm_sections_menu', true))
+  const [reportMenuOpen, setReportMenuOpen] = useState(() => readMenuPref('dm_report_menu', false))
+  const sectionsOpen = view === 'report' ? reportMenuOpen : appMenuOpen
+  const toggleSections = () => {
+    const [key, setOpen] = view === 'report' ? ['dm_report_menu', setReportMenuOpen] as const : ['dm_sections_menu', setAppMenuOpen] as const
+    setOpen((open) => { try { localStorage.setItem(key, open ? '0' : '1') } catch { /* per-browser preference only */ } return !open })
+  }
   const autosaveInFlight = useRef(false)
   const submittedReportIds = useRef(new Set<string>())
 
@@ -525,7 +550,10 @@ export function DutyManager() {
     loadStartup()
   }, [])
 
+  // Startup already loads the reports; only later business-unit filter changes reload them.
+  const reportFilterLoaded = useRef(false)
   useEffect(() => {
+    if (!reportFilterLoaded.current) { reportFilterLoaded.current = true; return }
     if (view === 'home') loadHomeReports()
   }, [reportFilter])
 
@@ -551,16 +579,66 @@ export function DutyManager() {
       }
     }, 800)
     return () => window.clearTimeout(timer)
-  }, [form, adminIssues, view, busy, reportId, flowSummaryId])
+  }, [form, view, busy, reportId, flowSummaryId])
 
+  // Automatic patient-flow counts are written to Dataverse by a dataflow every 30 minutes. While a report
+  // is open they are re-read every 5 minutes and whenever the user returns to the app, so new counts
+  // appear without a reload.
+  const [autoCounts, setAutoCounts] = useState<AutoCountsState>({ status: 'idle' })
+  const autoCountsBusy = useRef(false)
+  const refreshAutoCounts = useCallback(async (manual = false) => {
+    const id = cleanId(reportId)
+    if (!id || autoCountsBusy.current) return
+    autoCountsBusy.current = true
+    if (manual) setAutoCounts((current) => ({ ...current, status: 'checking' }))
+    try {
+      const { found, populated, patch } = await retrievePatientFlowSummary(id)
+      if (populated) {
+        setForm((prev) => {
+          const changed = Object.entries(patch).some(([key, value]) => (prev as any)[key] !== value)
+          if (!changed) return prev
+          const next = { ...prev, ...patch }
+          next.admissions = next.erAdmissions + next.opdAdmissions
+          next.discharges = next.plannedDischarges + next.unplannedDischarges
+          return next
+        })
+      }
+      setAutoCounts({ status: !found ? 'missing' : populated ? 'ready' : 'empty', checkedAt: new Date().toISOString() })
+    } catch (error) {
+      console.warn('Could not refresh patient flow counts', error)
+      setAutoCounts((current) => ({ ...current, status: 'error', checkedAt: new Date().toISOString() }))
+    } finally {
+      autoCountsBusy.current = false
+    }
+  }, [reportId])
+  useEffect(() => {
+    if (view !== 'report' || !reportId) return
+    refreshAutoCounts()
+    const timer = window.setInterval(() => refreshAutoCounts(), AUTO_COUNTS_REFRESH_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAutoCounts() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [view, reportId, refreshAutoCounts])
+
+  // Section autosave only writes rows whose payload changed (see saveRow). A change made while a save
+  // is running is saved by a follow-up run instead of being skipped.
+  const autosaveQueued = useRef(false)
   useEffect(() => {
     if (view !== 'report' || busy || !reportId || !flowSummaryId) return
-    const timer = window.setTimeout(() => {
-      if (autosaveInFlight.current) return
+    const timer = window.setTimeout(function run() {
+      if (autosaveInFlight.current) { autosaveQueued.current = true; return }
       autosaveInFlight.current = true
       autosaveSections()
         .catch((error) => setMessage(`Dataverse autosave failed: ${errorMessage(error)}`))
-        .finally(() => { autosaveInFlight.current = false })
+        .finally(() => {
+          autosaveInFlight.current = false
+          if (autosaveQueued.current) { autosaveQueued.current = false; window.setTimeout(run, 300) }
+        })
     }, 900)
     return () => window.clearTimeout(timer)
   }, [events, adminIssues, opsIssues, damaEntries, form.complaintsCount, form.complaintsSummary, form.ovrsCount, form.ovrsSummary, form.govVisit, form.govSummary, view, busy, reportId, flowSummaryId])
@@ -571,19 +649,48 @@ export function DutyManager() {
     return () => window.removeEventListener('beforeunload', saveBeforeLeave)
   }, [view, form, events, adminIssues, opsIssues, damaEntries, earlyDischarges, draftId, reportId, flowSummaryId])
 
+  // The signed-in user is resolved first: drafts are restored and listed only for that duty manager.
+  // Startup order: who the user is, what their security roles allow, then the data they can see.
   async function loadStartup() {
+    setAccess({ level: 'checking' })
+    allowDataverseWrites(false)
+    const userId = await loadCurrentUser()
+    if (!userId) {
+      setAccess({ level: 'none', reason: 'Your account could not be matched to a Dataverse user, so your Duty Manager access could not be checked.' })
+      return
+    }
+    let level: AccessLevel
+    let commandCenter: boolean
+    try {
+      const roles = await loadUserRoles(userId)
+      level = accessLevelFor(roles)
+      commandCenter = commandCenterFor(roles)
+    } catch (error) {
+      setAccess({ level: 'error', reason: `Your security roles could not be loaded: ${errorMessage(error)}` })
+      return
+    }
+    allowDataverseWrites(level === 'full' || level === 'reports')
+    setAccess({ level, commandCenter })
+    if (level === 'none') return
+    if (level === 'view') {
+      // View-only users have no drafts to continue.
+      setDrafts([])
+      await Promise.all([loadReferences(), loadHomeReports(), loadAlerts()])
+      return
+    }
+    setDraftOwner(userId)
     setDrafts(getDrafts())
-    await Promise.all([loadCurrentUser(), loadReferences(), loadHomeReports(), loadAlerts()])
+    await Promise.all([loadPersistedDrafts(userId), loadReferences(), loadHomeReports(), loadAlerts()])
   }
 
-  async function loadCurrentUser() {
+  async function loadCurrentUser(): Promise<string> {
     const hostUser = await getLoggedInUser()
 
     try {
       const resolved = await resolveSystemUser(hostUser)
       if (resolved) {
         setForm((prev) => ({ ...prev, dmName: resolved.fullname || hostUser.name || 'Current User', dmUserId: resolved.systemuserid || hostUser.id || '' }))
-        return
+        return cleanId(resolved.systemuserid || '')
       }
     } catch (error) {
       console.warn('Could not resolve logged-in systemuser', error)
@@ -591,10 +698,11 @@ export function DutyManager() {
 
     if (hostUser.name && !isAppPrincipalName(hostUser.name)) {
       setForm((prev) => ({ ...prev, dmName: hostUser.name, dmUserId: hostUser.id || '' }))
-      return
+      return ''
     }
 
     setForm((prev) => ({ ...prev, dmName: 'Current User', dmUserId: hostUser.id || '' }))
+    return ''
   }
 
   async function loadReferences() {
@@ -612,20 +720,31 @@ export function DutyManager() {
     }
   }
 
-  async function loadPersistedDrafts() {
+  // Restores the signed-in duty manager's own Dataverse drafts that this browser doesn't have yet.
+  async function loadPersistedDrafts(userId: string) {
+    if (!userId) { setDrafts(getDrafts()); return }
     try {
       const rows = list(await Services.reports.getAll({
-        filter: "statecode eq 0 and (dma_reportstatus eq 778000001 or (dma_reportstatus eq 778000000 and dma_hotissues eq 'Draft Report initiated'))",
+        select: ['dma_handoverreportid', 'dma_reportstatus', 'dma_hotissues', 'statecode', 'createdon'],
+        filter: `statecode eq 0 and _dma_dutymanager_value eq ${userId} and (dma_reportstatus eq 778000001 or (dma_reportstatus eq 778000000 and dma_hotissues eq 'Draft Report initiated'))`,
         orderBy: ['createdon desc'],
       } as any))
+      // A local draft whose report is no longer an active Dataverse draft was submitted or deleted
+      // elsewhere (another device or browser); drop the stale local copy.
+      const activeIds = new Set(rows.filter(isRecoverableDraft).map((row) => cleanId(row.dma_handoverreportid).toLowerCase()))
+      for (const draft of getDrafts()) {
+        if (draft.reportId && !activeIds.has(cleanId(draft.reportId).toLowerCase()) && !submittedReportIds.current.has(cleanId(draft.reportId))) {
+          localStorage.removeItem(`dm_handover_draft_${draft.draftId}`)
+        }
+      }
       let failed = 0
       for (const row of rows.filter(isRecoverableDraft)) {
         const id = cleanId(row.dma_handoverreportid)
         if (getDrafts().some((draft) => cleanId(draft.reportId) === id)) continue
         try {
-          const [bundle, shortages] = await Promise.all([retrieveDraftBundle(id), coverageShortageRows(id)])
+          const [bundle, shortages] = await Promise.all([retrieveReportBundle(id), coverageShortageRows(id)])
           if (!isRecoverableDraft(bundle.report)) continue
-          const draft = restoreDraft(bundle, initialForm(), shortages)
+          const draft = await withPatientDetails(restoreDraft(bundle, initialForm(), shortages))
           if (!getDrafts().some((item) => cleanId(item.reportId) === id)) {
             localStorage.setItem(`dm_handover_draft_${draft.draftId}`, JSON.stringify(draft))
           }
@@ -643,40 +762,21 @@ export function DutyManager() {
   }
 
   async function loadHomeReports() {
-    await loadPersistedDrafts()
-    const filter = reportFilter !== 'all' ? `dma_businessunit eq ${reportFilter}` : undefined
+    // Only submitted (Completed) and acknowledged reports are listed; drafts are filtered out below.
+    const submittedFilter = 'statecode eq 0 and (dma_reportstatus eq 778000002 or dma_reportstatus eq 778000000)'
+    const filter = reportFilter !== 'all' ? `${submittedFilter} and dma_businessunit eq ${reportFilter}` : submittedFilter
 
     try {
-      const webRows = await retrieveHandoverReportsViaXrm(reportFilter).catch((error) => {
-        console.warn('Xrm handover report lookup failed', error)
-        return []
-      })
-      if (webRows.length) {
-        const submittedRows = webRows.filter(isSubmittedReport)
-        setReports(submittedRows)
-        setReportPage(1)
-        return submittedRows
-      }
-
       const result = await Services.reports.getAll({
         select: ['dma_handoverreportid', 'dma_name', 'dma_reportdate', 'dma_businessunit', 'dma_shifttype', 'dma_reportstatus', 'statecode', 'statuscode', 'dma_hotissues', 'dma_dmacknowledgmenttimestamp', 'createdon', '_dma_dutymanager_value'],
         filter,
         orderBy: ['createdon desc'],
         top: 100,
       } as any)
-      const rows = list(result)
-      if (!rows.length) {
-        const broadResult = await Services.reports.getAll({ filter, orderBy: ['createdon desc'], top: 100 } as any)
-        const submittedRows = list(broadResult).filter(isSubmittedReport)
-        setReports(submittedRows)
-        setReportPage(1)
-        return submittedRows
-      } else {
-        const submittedRows = rows.filter(isSubmittedReport)
-        setReports(submittedRows)
-        setReportPage(1)
-        return submittedRows
-      }
+      const submittedRows = list(result).filter(isSubmittedReport)
+      setReports(submittedRows)
+      setReportPage(1)
+      return submittedRows
     } catch (error) {
       console.error('Error fetching recent reports', error)
       setReports([])
@@ -686,9 +786,11 @@ export function DutyManager() {
   }
   async function loadAlerts() {
     try {
-      const result = await Services.alerts.getAll({ orderBy: ['createdon desc'], top: 50 })
+      const result = await Services.alerts.getAll({ select: ['dma_alertid', 'dma_name', 'dma_alertdescription', 'dma_severity', 'dma_isread', 'createdon', '_dma_handoverreport_value'], orderBy: ['createdon desc'], top: 50 })
       const readIds = JSON.parse(localStorage.getItem('dma_read_alerts') || '[]') as string[]
-      setAlerts(list(result).map((a) => ({
+      const rows = list<any>(result)
+      const reportHospitals = await alertReportHospitals(rows.map((a) => a._dma_handoverreport_value))
+      setAlerts(rows.map((a) => ({
         id: a.dma_alertid,
         title: a.dma_name,
         description: a.dma_alertdescription || '',
@@ -696,6 +798,8 @@ export function DutyManager() {
         isRead: Boolean(a.dma_isread) || readIds.includes(a.dma_alertid),
         createdOn: a.createdon,
         reportId: a._dma_handoverreport_value,
+        // Hospital of the linked report; alerts without one fall back to the "Business Unit:" line in their text.
+        businessUnit: reportHospitals[cleanId(a._dma_handoverreport_value).toLowerCase()] || hospitalFromAlertText(a.dma_alertdescription),
       })))
     } catch {
       setAlerts(fallbackAlerts())
@@ -706,16 +810,18 @@ export function DutyManager() {
     setForm((prev) => {
       const next = { ...prev, ...patch }
       next.admissions = next.erAdmissions + next.opdAdmissions
+      next.discharges = next.plannedDischarges + next.unplannedDischarges
       return next
     })
   }
 
-  async function startShift() {
-    if (busy) return
+  // A report belongs to one hospital, chosen when it is started.
+  async function startShift(selectedBusinessUnit: string) {
+    if (busy || blockedReadOnly()) return
     const baseForm = initialForm()
-    const businessUnit = form.businessUnit || baseForm.businessUnit
-    const latestBuReport = latestReportForBusinessUnit(reports, businessUnit)
-    const nextShift = latestBuReport ? nextShiftAfter(shiftFromValue(latestBuReport.dma_shifttype)) : baseForm.shift
+    const businessUnit = selectedBusinessUnit || baseForm.businessUnit
+    // The shift comes from the clock (Morning 08-14, Evening 14-20, Night 20-08), not from the last report.
+    const nextShift = baseForm.shift
     const nextForm = { ...baseForm, dmName: form.dmName, dmUserId: form.dmUserId, businessUnit, shift: nextShift }
     // One draft per duty manager + business unit + shift + day: reopen it instead of creating a duplicate report.
     const existing = getDrafts().find((draft) => sameHandover(draft, nextForm))
@@ -756,21 +862,9 @@ export function DutyManager() {
     }
   }
 
-  function latestReportForBusinessUnit(rows: any[], businessUnit: string) {
-    return rows
-      .filter((row) => String(row.dma_businessunit) === String(businessUnit))
-      .sort((a, b) => new Date(b.dma_reportdate || b.createdon || 0).getTime() - new Date(a.dma_reportdate || a.createdon || 0).getTime())[0]
-  }
-
-  function nextShiftAfter(shift: Shift): Shift {
-    if (shift === 'Morning') return 'Evening'
-    if (shift === 'Evening') return 'Night'
-    return 'Morning'
-  }
-
   function writeDraft(snapshot: { form: FormState; draftId: string; reportId: string; flowSummaryId: string; experienceId?: string; events: EventItem[]; adminIssues: AdminIssue[]; opsIssues: OpsIssue[]; damaEntries: DamaEntry[]; earlyDischarges: EarlyDischarge[] }, refresh = true) {
     if (submittedReportIds.current.has(cleanId(snapshot.reportId))) return
-    const draft: DraftRecord = { ...snapshot.form, draftId: snapshot.draftId, reportId: snapshot.reportId, flowSummaryId: snapshot.flowSummaryId, experienceId: snapshot.experienceId, events: snapshot.events, adminIssues: snapshot.adminIssues, opsIssues: snapshot.opsIssues, damaEntries: snapshot.damaEntries, earlyDischarges: snapshot.earlyDischarges, timestamp: new Date().toLocaleString() }
+    const draft: DraftRecord = { ...snapshot.form, draftId: snapshot.draftId, reportId: snapshot.reportId, flowSummaryId: snapshot.flowSummaryId, experienceId: snapshot.experienceId, events: snapshot.events, adminIssues: snapshot.adminIssues, opsIssues: snapshot.opsIssues, damaEntries: snapshot.damaEntries, earlyDischarges: snapshot.earlyDischarges, timestamp: new Date().toISOString() }
     localStorage.setItem(`dm_handover_draft_${snapshot.draftId}`, JSON.stringify(draft))
     if (refresh) setDrafts(getDrafts())
   }
@@ -789,6 +883,7 @@ export function DutyManager() {
   }
   // Opens a draft, optionally straight on a given report page (e.g. from a Current shift item).
   async function openDraft(draft: DraftRecord, startTab: TabKey = 'general') {
+    if (blockedReadOnly()) return
     if (draft.reportId) {
       try {
         const row = unwrap<any>(await Services.reports.get(cleanId(draft.reportId)))
@@ -809,7 +904,9 @@ export function DutyManager() {
         return
       }
     }
-    setForm({ ...initialForm(), ...draft })
+    const openedForm = { ...initialForm(), ...draft }
+    seedSavedPayloads(openedForm, draft)
+    setForm(openedForm)
     setDraftId(draft.draftId)
     setReportId(draft.reportId || '')
     setFlowSummaryId(draft.flowSummaryId || '')
@@ -836,62 +933,29 @@ export function DutyManager() {
 
   async function loadEventCodes(typeId: string) {
     if (!typeId) return setEventCodes([])
+    const key = cleanId(typeId).toLowerCase()
     try {
-      const result = await Services.eventCodes.getAll({ select: ['dma_eventcodeid', 'dma_name'], filter: `_dma_eventtype_value eq ${cleanId(typeId)}`, orderBy: ['dma_name asc'] })
-      setEventCodes(list(result))
+      // Codes per event type are reference data: fetched once per type for the session.
+      if (!eventCodeCache.has(key)) eventCodeCache.set(key, list(await Services.eventCodes.getAll({ select: ['dma_eventcodeid', 'dma_name'], filter: `_dma_eventtype_value eq ${key}`, orderBy: ['dma_name asc'] })))
+      setEventCodes(eventCodeCache.get(key) || [])
     } catch {
       setEventCodes([])
     }
   }
 
+  // The Command Center shows submitted reports only; it opens on the shift being worked on, or the current one.
   function showDashboard(reportRows: any[] = reports) {
+    if (!canSeeCommandCenter) {
+      setMessage('The Command Center is available to Duty Manager administrators, customizers and View Access users only.')
+      return
+    }
     if (!Array.isArray(reportRows)) reportRows = reports
     if (view === 'report') saveDraft(true)
-    const activeShift = form.shift
-    const submittedCount = reportRows.length
-    const bus = businessUnits.map(([value, label]) => {
-      const report = reportRows.find((r) => String(r.dma_businessunit) === String(value) && shiftFromValue(r.dma_shifttype) === activeShift)
-      const acknowledged = Boolean(report?.dma_dmacknowledgmenttimestamp)
-      return {
-        value,
-        label,
-        report,
-        status: report ? (acknowledged ? 'acknowledged' : 'submitted') : 'unsubmitted',
-        dm: report ? displayName(report) : '-',
-        statusLabel: report ? (acknowledged ? 'Acknowledged' : 'Submitted') : 'Pending',
-        sla: report ? 'Submitted On Time' : 'Pending',
-        escalation: report ? 'Not required' : 'Submission overdue',
-      }
-    })
-    const totalDama = form.erDama + form.inpDama + form.closedDama
-    const retained = form.erDamaRetention + form.inpDamaRetention + form.closedDamaRetention
-    const maxUtil = Math.max(form.inpUtilization, form.icuUtilization, form.ccuUtilization, form.picuUtilization, form.nicuUtilization, form.cxUtilization, form.strokeUtilization)
-    const majorIncidents = events.filter((x) => x.severity === '778000002').length
-    const acknowledgedCount = bus.filter((x) => x.status === 'acknowledged').length
-    const pendingCount = bus.filter((x) => x.status === 'unsubmitted').length
     setDashboard({
       updated: new Date().toLocaleTimeString('en-GB'),
-      date: form.reportDate,
-      shift: activeShift,
-      bus,
+      date: view === 'report' ? form.reportDate : new Date().toISOString(),
+      shift: view === 'report' ? form.shift : shiftForDate(new Date()),
       reports: reportRows,
-      metrics: [
-        { key: 'major-incidents', label: 'Major incidents', value: majorIncidents, desc: majorIncidents ? 'Major event escalation active' : 'No major incidents', alert: majorIncidents > 0 },
-        { key: 'submitted', label: 'Reports submitted', value: `${bus.filter((x) => x.report).length}/${bus.length}`, desc: pendingCount ? `${pendingCount} BUs pending` : 'All BUs submitted', alert: pendingCount > 0 },
-        { key: 'acknowledged', label: 'Reports acknowledged', value: `${acknowledgedCount}/${bus.length}`, desc: acknowledgedCount === bus.length ? 'All reports acknowledged' : `${bus.length - acknowledgedCount} pending ack`, warn: acknowledgedCount < bus.length },
-        { key: 'active-issues', label: 'Active pending issues', value: pendingItems.length, desc: 'Active monitoring', alert: pendingItems.length > 0 },
-        { key: 'total-dama', label: 'Total DAMA (all BUs)', value: totalDama, desc: `Retention: ${totalDama ? Math.round((retained / totalDama) * 100) : 100}%`, warn: totalDama > retained },
-        { key: 'peak-utilization', label: 'Peak INP utilization', value: `${maxUtil}%`, desc: maxUtil > 90 ? 'Bed pressure' : 'Stable utilization', alert: maxUtil > 90 },
-      ],
-      aging: pendingItems.map((item: any, index) => ({
-        id: item.id || `age-${index}`,
-        issue: item.catLabel || item.desc || labelFor(serviceAffectedOptions, item.affectedId) || 'Pending issue',
-        bu: labelFor(businessUnits, form.businessUnit),
-        category: item.catLabel ? 'Administrative' : 'Operations',
-        owner: form.dmName || 'Duty Manager',
-        age: 'Current shift',
-      })),
-      submittedCount,
     })
     setView('dashboard')
   }
@@ -900,6 +964,7 @@ export function DutyManager() {
     showDashboard(latestReports || [])
   }
   async function saveGeneral() {
+    if (blockedReadOnly()) return ''
     setBusy(true)
     try {
       const nextId = await persistGeneral(form, reportId)
@@ -919,72 +984,57 @@ export function DutyManager() {
     }
   }
 
-  async function saveFlow(currentReportId = reportId) {
-    const id = await persistFlow(form, currentReportId, flowSummaryId)
-    setFlowSummaryId(id)
-    return id
+  // Writes the experience record and every event, admin issue, outage and DAMA case of the draft.
+  // saveRow skips rows whose payload has not changed since it was last written. Ids of rows created
+  // here are written back as they are created, so a failure part-way does not create duplicates on retry.
+  async function saveSections(report: string, flow: string) {
+    const rows = {
+      experienceId,
+      events: events.map((row) => ({ ...row })),
+      adminIssues: adminIssues.map((row) => ({ ...row })),
+      opsIssues: opsIssues.map((row) => ({ ...row })),
+      damaEntries: damaEntries.map((row) => ({ ...row })),
+    }
+    try {
+      rows.experienceId = await saveRow(Services.experience, 'dma_patientexperiences', 'dma_patientexperienceid', rows.experienceId, experiencePayload(form, report))
+      for (const event of rows.events) {
+        event.loggedAt = event.loggedAt || new Date().toISOString()
+        event.dataverseId = await saveRow(Services.events, 'dma_hospitalevents', 'dma_hospitaleventid', event.dataverseId, eventPayload(event, report), { create: { dma_eventlogtimestamp: event.loggedAt }, update: clearedPatientBinds(event.area) })
+      }
+      for (const issue of rows.adminIssues) {
+        issue.dataverseId = await saveRow(Services.adminEntries, 'dma_administrativeissueentries', 'dma_administrativeissueentryid', issue.dataverseId, adminPayload(issue, report), { update: clearedPatientBinds(issue.area) })
+      }
+      for (const issue of rows.opsIssues) {
+        issue.dataverseId = await saveRow(Services.ops, 'dma_opeartions', 'dma_opeartionid', issue.dataverseId, opsPayload(issue, report))
+      }
+      for (const entry of rows.damaEntries) {
+        entry.dataverseId = await saveRow(Services.flowEntries, 'dma_patientflowentries', 'dma_patientflowentryid', entry.dataverseId, damaPayload(entry, flow), { update: clearedPatientBinds(damaArea(entry)) })
+      }
+    } finally {
+      // Merge the new ids into the current state; edits made while saving are kept.
+      const merge = <T extends { id: string; dataverseId?: string }>(saved: T[], extra?: (row: T, savedRow: T) => Partial<T>) => (current: T[]) => {
+        const changed = current.some((row) => { const s = saved.find((x) => x.id === row.id); return s && (s.dataverseId !== row.dataverseId || (extra && Object.entries(extra(row, s)).some(([key, value]) => (row as any)[key] !== value))) })
+        return changed ? current.map((row) => { const s = saved.find((x) => x.id === row.id); return s ? { ...row, dataverseId: s.dataverseId, ...(extra ? extra(row, s) : {}) } : row }) : current
+      }
+      if (rows.experienceId !== experienceId) setExperienceId(rows.experienceId || '')
+      setEvents(merge(rows.events, (_row, s) => ({ loggedAt: s.loggedAt })))
+      setAdminIssues(merge(rows.adminIssues))
+      setOpsIssues(merge(rows.opsIssues))
+      setDamaEntries(merge(rows.damaEntries))
+    }
+    return rows
   }
-console.log('completion', saveFlow)
 
   async function autosaveSections() {
     const report = cleanId(reportId)
     const flow = cleanId(flowSummaryId)
     if (!report || !flow) throw new Error('The draft report and patient-flow summary must exist before section data can be saved.')
-
-    let nextExperienceId = experienceId
-    const experienceData: any = compact({
-      dma_name: `${reportCode(form)} Experience`,
-      dma_escalatedcomplaints: form.complaintsCount,
-      dma_summaryofnewongoingcomplaints: form.complaintsSummary,
-      dma_escalatedovrs: form.ovrsCount,
-      dma_summaryofnewovrs: form.ovrsSummary,
-      dma_governmentalregulatoryvisits: form.govVisit === 'Yes' ? 999740000 : 999740001,
-      dma_authoritynamefindingssummary: form.govSummary,
-      'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`,
-    })
-    if (nextExperienceId) await Services.experience.update(cleanId(nextExperienceId), experienceData)
-    else {
-      nextExperienceId = resultId(await Services.experience.create(experienceData), 'dma_patientexperienceid')
-      setExperienceId(nextExperienceId)
-    }
-
-    const nextEvents = events.map((row) => ({ ...row }))
-    for (const event of nextEvents) {
-      const payload = compact(applyPatientBind({ dma_name: `${event.typeText} - ${event.codeText}`, dma_severitylevel: Number(event.severity), dma_incidentdescription: event.desc, dma_immediateactionstaken: event.actions, dma_eventlogtimestamp: new Date().toISOString(), 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`, 'dma_EventType@odata.bind': event.typeId ? `/dma_eventtypes(${cleanId(event.typeId)})` : undefined, 'dma_EventCode@odata.bind': event.codeId ? `/dma_eventcodes(${cleanId(event.codeId)})` : undefined }, event.area, event.pId)) as any
-      if (event.dataverseId) await Services.events.update(cleanId(event.dataverseId), payload)
-      else event.dataverseId = resultId(await Services.events.create(payload), 'dma_hospitaleventid')
-    }
-    if (nextEvents.some((row, index) => row.dataverseId !== events[index]?.dataverseId)) setEvents(nextEvents)
-
-    const nextAdmin = adminIssues.map((row) => ({ ...row }))
-    for (const issue of nextAdmin) {
-      const payload: any = compact(applyPatientBind({ dma_name: issue.catLabel, dma_description: issue.desc, dma_actiontaken: issue.action, dma_pendingissues: issue.pendingDetails, dma_count: 1, dma_resolutionstatus: Number(issue.status), 'dma_IssueID@odata.bind': issue.catId ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined, 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})` }, issue.area, issue.pId))
-      if (issue.dataverseId) await Services.adminEntries.update(cleanId(issue.dataverseId), payload)
-      else issue.dataverseId = resultId(await Services.adminEntries.create(payload), 'dma_administrativeissueentryid')
-    }
-    if (nextAdmin.some((row, index) => row.dataverseId !== adminIssues[index]?.dataverseId)) setAdminIssues(nextAdmin)
-
-    const nextOps = opsIssues.map((row) => ({ ...row }))
-    for (const issue of nextOps) {
-      const payload: any = compact({ dma_name: `${labelFor(serviceAffectedOptions, issue.affectedId)} - ${labelFor(opsIssueOptions, issue.issueId)}`, dma_servicefunctionality: Number(issue.funcId), dma_serviceaffected: Number(issue.affectedId), dma_typeofissue: Number(issue.issueId), dma_descriptionofissue: issue.desc, dma_resolutionstatus: Number(issue.statusId), dma_pendingissues: issue.pendingDetails, 'dma_ReportID@odata.bind': `/dma_handoverreports(${report})` })
-      if (issue.dataverseId) await Services.ops.update(cleanId(issue.dataverseId), payload)
-      else issue.dataverseId = resultId(await Services.ops.create(payload), 'dma_opeartionid')
-    }
-    if (nextOps.some((row, index) => row.dataverseId !== opsIssues[index]?.dataverseId)) setOpsIssues(nextOps)
-
-    const nextDama = damaEntries.map((row) => ({ ...row }))
-    for (const entry of nextDama) {
-      const payload = compact(applyPatientBind({ dma_name: entry.patientName || 'DAMA Patient', dma_erdama: entry.damaType === 'ER' ? 1 : 0, dma_inpdama: entry.damaType === 'INP' ? 1 : 0, dma_reason: entry.reason, dma_actiontaken: entry.actionTaken, 'dma_PatientFlow@odata.bind': `/dma_patientflowsummaries(${flow})` }, entry.area || (entry.damaType === 'ER' ? 'ER' : 'IPD'), entry.pId)) as any
-      if (entry.dataverseId) await Services.flowEntries.update(cleanId(entry.dataverseId), payload)
-      else entry.dataverseId = resultId(await Services.flowEntries.create(payload), 'dma_patientflowentryid')
-    }
-    if (nextDama.some((row, index) => row.dataverseId !== damaEntries[index]?.dataverseId)) setDamaEntries(nextDama)
-
-    if (draftId) writeDraft({ form, draftId, reportId: report, flowSummaryId: flow, experienceId: nextExperienceId, events: nextEvents, adminIssues: nextAdmin, opsIssues: nextOps, damaEntries: nextDama, earlyDischarges }, false)
+    await saveSections(report, flow)
   }
 
   async function deleteSectionRow(kind: 'event' | 'admin' | 'ops' | 'dama', row: EventItem | AdminIssue | OpsIssue | DamaEntry) {
     const labels = { event: 'hospital event', admin: 'administrative issue', ops: 'operations outage', dama: 'patient case' }
+    if (blockedReadOnly()) return
     if (!await pulseConfirm(`Delete ${labels[kind]}`, `Delete this ${labels[kind]}? This action cannot be undone.`)) return
     try {
       if (row.dataverseId) {
@@ -1005,16 +1055,21 @@ console.log('completion', saveFlow)
 
   async function deleteDraft(id: string) {
     const draft = getDrafts().find((item) => item.draftId === id)
-    if (!draft) return
+    if (!draft || blockedReadOnly()) return
     if (!await pulseConfirm('Delete draft', 'Delete this draft and all of its linked records? This action cannot be undone.', 'Delete draft')) return
     try {
-      await Promise.all((draft.events || []).filter((row) => row.dataverseId).map((row) => Services.events.delete(cleanId(row.dataverseId))))
-      await Promise.all((draft.adminIssues || []).filter((row) => row.dataverseId).map((row) => Services.adminEntries.delete(cleanId(row.dataverseId))))
-      await Promise.all((draft.opsIssues || []).filter((row) => row.dataverseId).map((row) => Services.ops.delete(cleanId(row.dataverseId))))
-      await Promise.all((draft.damaEntries || []).filter((row) => row.dataverseId).map((row) => Services.flowEntries.delete(cleanId(row.dataverseId))))
-      if (draft.experienceId) await Services.experience.delete(cleanId(draft.experienceId))
-      if (draft.flowSummaryId) await Services.flow.delete(cleanId(draft.flowSummaryId))
-      if (draft.reportId) await deleteCoverageShortages(cleanId(draft.reportId))
+      // Child rows first (all in parallel), then the report's direct children, then the report itself.
+      await Promise.all([
+        ...(draft.events || []).filter((row) => row.dataverseId).map((row) => Services.events.delete(cleanId(row.dataverseId))),
+        ...(draft.adminIssues || []).filter((row) => row.dataverseId).map((row) => Services.adminEntries.delete(cleanId(row.dataverseId))),
+        ...(draft.opsIssues || []).filter((row) => row.dataverseId).map((row) => Services.ops.delete(cleanId(row.dataverseId))),
+        ...(draft.damaEntries || []).filter((row) => row.dataverseId).map((row) => Services.flowEntries.delete(cleanId(row.dataverseId))),
+      ])
+      await Promise.all([
+        draft.experienceId ? Services.experience.delete(cleanId(draft.experienceId)) : undefined,
+        draft.flowSummaryId ? Services.flow.delete(cleanId(draft.flowSummaryId)) : undefined,
+        draft.reportId ? deleteCoverageShortages(cleanId(draft.reportId)) : undefined,
+      ])
       if (draft.reportId) await Services.reports.delete(cleanId(draft.reportId))
       localStorage.removeItem(`dm_handover_draft_${id}`)
       setDrafts(getDrafts())
@@ -1026,6 +1081,7 @@ console.log('completion', saveFlow)
   }
 
   async function submitReport() {
+    if (blockedReadOnly()) return
     if (acknowledgmentPending(previous)) {
       setMessage('The previous handover must be acknowledged before this report can be submitted.')
       setTab('general')
@@ -1042,63 +1098,18 @@ console.log('completion', saveFlow)
     }
     setBusy(true)
     try {
+      const existingReport = await findSubmittedReportForSlot(form, reportId)
+      if (existingReport) {
+        setMessage(`A ${form.shift} report for ${labelFor(businessUnits, form.businessUnit)} on ${shiftBusinessDate(form.reportDate, form.shift)} was already submitted (${existingReport.dma_name || 'existing report'}). Review it from Home instead of submitting a second report.`)
+        return
+      }
+      // The final submission writes every record once more, whatever autosave last sent.
+      forgetSavedPayloads()
       const id = await persistGeneral(form, reportId)
       setReportId(id)
       const flowId = await persistFlow(form, id, flowSummaryId)
       setFlowSummaryId(flowId)
-      let nextExperienceId = experienceId
-      const nextEvents = events.map((row) => ({ ...row }))
-      const nextAdmin = adminIssues.map((row) => ({ ...row }))
-      const nextOps = opsIssues.map((row) => ({ ...row }))
-      const nextDama = damaEntries.map((row) => ({ ...row }))
-      const checkpoint = () => {
-        setExperienceId(nextExperienceId)
-        setEvents([...nextEvents])
-        setAdminIssues([...nextAdmin])
-        setOpsIssues([...nextOps])
-        setDamaEntries([...nextDama])
-        if (draftId) writeDraft({ form, draftId, reportId: id, flowSummaryId: flowId, experienceId: nextExperienceId, events: nextEvents, adminIssues: nextAdmin, opsIssues: nextOps, damaEntries: nextDama, earlyDischarges }, false)
-      }
-
-      const experiencePayload: any = compact({ dma_name: `${reportCode(form)} Experience`, dma_escalatedcomplaints: form.complaintsCount, dma_summaryofnewongoingcomplaints: form.complaintsSummary, dma_escalatedovrs: form.ovrsCount, dma_summaryofnewovrs: form.ovrsSummary, dma_governmentalregulatoryvisits: form.govVisit === 'Yes' ? 999740000 : 999740001, dma_authoritynamefindingssummary: form.govSummary, 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})` })
-      if (nextExperienceId) await Services.experience.update(cleanId(nextExperienceId), experiencePayload)
-      else {
-        nextExperienceId = resultId(await Services.experience.create(experiencePayload), 'dma_patientexperienceid')
-        checkpoint()
-      }
-
-      for (const event of nextEvents) {
-        const payload = compact(applyPatientBind({ dma_name: `${event.typeText} - ${event.codeText}`, dma_severitylevel: Number(event.severity), dma_incidentdescription: event.desc, dma_immediateactionstaken: event.actions, dma_eventlogtimestamp: new Date().toISOString(), 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})`, 'dma_EventType@odata.bind': event.typeId ? `/dma_eventtypes(${cleanId(event.typeId)})` : undefined, 'dma_EventCode@odata.bind': event.codeId ? `/dma_eventcodes(${cleanId(event.codeId)})` : undefined }, event.area, event.pId)) as any
-        if (event.dataverseId) await Services.events.update(cleanId(event.dataverseId), payload)
-        else {
-          event.dataverseId = resultId(await Services.events.create(payload), 'dma_hospitaleventid')
-          checkpoint()
-        }
-      }
-      for (const issue of nextAdmin) {
-        const payload: any = compact(applyPatientBind({ dma_name: issue.catLabel, dma_description: issue.desc, dma_actiontaken: issue.action, dma_pendingissues: issue.pendingDetails, dma_count: 1, dma_resolutionstatus: Number(issue.status), 'dma_IssueID@odata.bind': issue.catId ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined, 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})` }, issue.area, issue.pId))
-        if (issue.dataverseId) await Services.adminEntries.update(cleanId(issue.dataverseId), payload)
-        else {
-          issue.dataverseId = resultId(await Services.adminEntries.create(payload), 'dma_administrativeissueentryid')
-          checkpoint()
-        }
-      }
-      for (const issue of nextOps) {
-        const payload: any = compact({ dma_name: `${labelFor(serviceAffectedOptions, issue.affectedId)} - ${labelFor(opsIssueOptions, issue.issueId)}`, dma_servicefunctionality: Number(issue.funcId), dma_serviceaffected: Number(issue.affectedId), dma_typeofissue: Number(issue.issueId), dma_descriptionofissue: issue.desc, dma_resolutionstatus: Number(issue.statusId), dma_pendingissues: issue.pendingDetails, 'dma_ReportID@odata.bind': `/dma_handoverreports(${cleanId(id)})` })
-        if (issue.dataverseId) await Services.ops.update(cleanId(issue.dataverseId), payload)
-        else {
-          issue.dataverseId = resultId(await Services.ops.create(payload), 'dma_opeartionid')
-          checkpoint()
-        }
-      }
-      for (const entry of nextDama) {
-        const payload = compact(applyPatientBind({ dma_name: entry.patientName || 'DAMA Patient', dma_erdama: entry.damaType === 'ER' ? 1 : 0, dma_inpdama: entry.damaType === 'INP' ? 1 : 0, dma_reason: entry.reason, dma_actiontaken: entry.actionTaken, 'dma_PatientFlow@odata.bind': `/dma_patientflowsummaries(${cleanId(flowId)})` }, entry.area || (entry.damaType === 'ER' ? 'ER' : 'IPD'), entry.pId)) as any
-        if (entry.dataverseId) await Services.flowEntries.update(cleanId(entry.dataverseId), payload)
-        else {
-          entry.dataverseId = resultId(await Services.flowEntries.create(payload), 'dma_patientflowentryid')
-          checkpoint()
-        }
-      }
+      await saveSections(id, flowId)
       await Services.reports.update(cleanId(id), { dma_reportstatus: 778000002, statecode: 0, statuscode: 1 } as any)
       submittedReportIds.current.add(cleanId(id))
       if (draftId) {
@@ -1120,31 +1131,18 @@ console.log('completion', saveFlow)
     const local = reports.find((x) => cleanId(x.dma_handoverreportid) === clean)
     setSelectedReport({ report: local || { dma_handoverreportid: clean, dma_name: 'Shift Report' }, flow: [], flowEntries: [], events: [], admin: [], ops: [], experience: [], loading: true })
     try {
-      const xrmBundle = await retrieveReportBundleViaXrm(clean).catch((error) => {
-        console.warn('Xrm report bundle lookup failed', error)
-        return null
-      })
-      if (xrmBundle?.report) {
-        setSelectedReport(xrmBundle)
-        return
-      }
-
-      const [report, flow, eventRows, admin, ops, experience] = await Promise.all([
-        Services.reports.get(clean), Services.flow.getAll({ filter: `_dma_reportid_value eq ${clean}` }), Services.events.getAll({ filter: `_dma_reportid_value eq ${clean}` }),
-        Services.adminEntries.getAll({ filter: `_dma_reportid_value eq ${clean}` }), Services.ops.getAll({ filter: `_dma_reportid_value eq ${clean}` }), Services.experience.getAll({ filter: `_dma_reportid_value eq ${clean}` }),
-      ])
-      const flowRows = list(flow)
-      const flowId = cleanId(flowRows[0]?.dma_patientflowsummaryid || flowRows[0]?.id || '')
-      const flowEntries = flowId ? list(await Services.flowEntries.getAll({ filter: `_dma_patientflow_value eq ${flowId}` } as any).catch(() => [])) : []
-      setSelectedReport({ report: unwrap(report), flow: flowRows, flowEntries, events: list(eventRows), admin: list(admin), ops: list(ops), experience: list(experience) })
-    } catch {
+      setSelectedReport(await retrieveReportBundle(clean))
+    } catch (error) {
+      setMessage(`Could not load the full report: ${errorMessage(error)}`)
       setSelectedReport({ report: local || { dma_handoverreportid: clean, dma_name: 'Shift Report' }, flow: [], flowEntries: [], events: [], admin: [], ops: [], experience: [] })
     }
   }
 
+
   // Single acknowledgment path for every Acknowledge button (report viewer, General page, locked-page panel):
   // saves to Dataverse, then updates everything showing that report so they agree immediately.
   async function acknowledgeHandover(id: string) {
+    if (readOnly) throw new Error(VIEW_ONLY_MESSAGE)
     const timestamp = new Date().toISOString()
     await acknowledgeHandoverReport(id, timestamp)
     const same = (row: any) => cleanId(row?.dma_handoverreportid) === cleanId(id)
@@ -1157,7 +1155,7 @@ console.log('completion', saveFlow)
   // Close the acknowledged report only after Dataverse confirms success.
   async function acknowledgeReport() {
     const id = selectedReport?.report?.dma_handoverreportid
-    if (!id) return
+    if (!id || blockedReadOnly()) return
     try {
       await acknowledgeHandover(id)
       setMessage('Report acknowledged.')
@@ -1171,7 +1169,8 @@ console.log('completion', saveFlow)
     const stored = JSON.parse(localStorage.getItem('dma_read_alerts') || '[]') as string[]
     localStorage.setItem('dma_read_alerts', JSON.stringify(Array.from(new Set([...stored, id]))))
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, isRead: true } : a))
-    Services.alerts.update(cleanId(id), { dma_isread: true } as any).catch(() => undefined)
+    // View-only users keep Done/Open in this browser only.
+    if (!readOnly) Services.alerts.update(cleanId(id), { dma_isread: true } as any).catch(() => undefined)
   }
 
   // Moves an alert from Done back to Open (e.g. marked done by mistake).
@@ -1179,20 +1178,11 @@ console.log('completion', saveFlow)
     const stored = JSON.parse(localStorage.getItem('dma_read_alerts') || '[]') as string[]
     localStorage.setItem('dma_read_alerts', JSON.stringify(stored.filter((item) => item !== id)))
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, isRead: false } : a))
-    Services.alerts.update(cleanId(id), { dma_isread: false } as any).catch(() => undefined)
+    if (!readOnly) Services.alerts.update(cleanId(id), { dma_isread: false } as any).catch(() => undefined)
   }
 
-  const openModule = (nextTab: TabKey) => {
-    if (view !== 'report') {
-      setMessage('Start or continue a handover before opening report sections.')
-      return
-    }
-    setTab(nextTab)
-    setView('report')
-  }
   const completionPercent = completion.ok ? 100 : Math.max(0, Math.round(((8 - completion.missing.length) / 8) * 100))
   const isWorkflow = view === 'report' || view === 'submitted'
-  const showReportNav = view === 'report'
   const homeDraft = view === 'home' ? drafts[0] : null
   const headerContext = homeDraft || form
   const headerCompletion = homeDraft ? draftCompletionPercent(homeDraft) : completionPercent
@@ -1200,59 +1190,40 @@ console.log('completion', saveFlow)
   const duplicateDraft = view === 'report' ? drafts.find((d) => d.draftId !== draftId && sameHandover(d, form)) : undefined
   const previous = usePreviousHandover(view === 'report', form, reportId, acknowledgeHandover)
 
-  return <div className="dm-app">
-    <style>{compactLayoutStyles}</style>
-    <nav className={`app-rail ${showReportNav ? 'report-open' : 'entry-only'}`} aria-label="Duty Manager primary navigation">
-      <div className="dm-mark">DM</div>
-      {/* Wrapped in a div so the rail's button:nth-of-type rules (section label, entry-only) are unaffected. */}
-      <div className="pulse-apps-slot">
-        <button type="button" className="pulse-apps-btn" onClick={() => setPulseOpen(true)} aria-label="Pulse Apps" title="Pulse Apps" aria-expanded={pulseOpen}>
-          <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5-10 5L2 7l10-5z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" /></svg>
-          <span>Pulse Apps</span>
-        </button>
-      </div>
-      <button className={view === 'home' ? 'active' : ''} onClick={() => leaveReport('home')} aria-label="Home / Shift Command" title="Home / Shift Command"><NavIcon name="home" /><span>Home</span></button>
-      <button className={view === 'dashboard' ? 'active' : ''} onClick={() => showDashboard()} aria-label="Command Center" title="Command Center"><NavIcon name="dashboard" /><span>Dashboard</span></button>
-      <button className={view === 'report' && tab === 'general' ? 'active' : ''} onClick={() => openModule('general')} aria-label="General / Shift Identity" title="General / Shift Identity"><NavIcon name="identity" /><span>General</span></button>
-      <button className={view === 'report' && tab === 'events' ? 'active' : ''} onClick={() => openModule('events')} aria-label="Hospital Events" title="Hospital Events"><NavIcon name="events" /><span>Events</span></button>
-      <button className={view === 'report' && tab === 'admin' ? 'active' : ''} onClick={() => openModule('admin')} aria-label="Administrative Issues" title="Administrative Issues"><NavIcon name="admin" /><span>Admin</span></button>
-      <button className={view === 'report' && tab === 'flow' ? 'active' : ''} onClick={() => openModule('flow')} aria-label="Patient Flow" title="Patient Flow"><NavIcon name="flow" /><span>Patient flow</span></button>
-      <button className={view === 'report' && tab === 'ops' ? 'active' : ''} onClick={() => openModule('ops')} aria-label="Operations" title="Operations"><NavIcon name="operations" /><span>Operations</span></button>
-      <button className={view === 'report' && tab === 'experience' ? 'active' : ''} onClick={() => openModule('experience')} aria-label="Experience" title="Experience"><NavIcon name="experience" /><span>Experience</span></button>
-      <button className={view === 'report' && tab === 'summary' ? 'active' : ''} onClick={() => openModule('summary')} aria-label="Summary / Handover Review" title="Summary / Handover Review"><NavIcon name="summary" /><span>Summary</span></button>
-    </nav>
-    {view === 'home' || view === 'dashboard' ? <AppHeader
-      crumb={view === 'home' ? 'Shift Command' : 'Situational awareness'}
+  if (access.level !== 'full' && access.level !== 'reports' && access.level !== 'view') return <AccessGate access={access} retry={loadStartup} />
 
+  return <div className={`dm-app${sectionsOpen ? '' : ' sections-hidden'}`}>
+    <style>{compactLayoutStyles}</style>
+    <nav className="app-rail entry-only" aria-label="Duty Manager sections">
+      <SectionLinks view={view} canSeeCommandCenter={canSeeCommandCenter} goHome={() => leaveReport('home')} goDashboard={() => showDashboard()} />
+    </nav>
+    <AppHeader
+      lead={<ShellTriggers sectionsOpen={sectionsOpen} toggleSections={toggleSections} />}
+      breadcrumb={isWorkflow ? [
+        { label: 'Home', onClick: () => leaveReport('home') },
+        { label: view === 'submitted' ? 'Handover submitted' : 'Handover report' },
+        { label: `${labelFor(businessUnits, form.businessUnit)} · ${form.shift} · ${shortDate(form.reportDate)}` },
+      ] : undefined}
+      crumb={view === 'home' ? 'Shift Command' : view === 'dashboard' ? 'Situational awareness' : 'Handover report'}
       context={view === 'home'
-        ? `${labelFor(businessUnits, headerContext.businessUnit)} · ${headerContext.shift} shift · ${shortDate(headerContext.reportDate)} · ${homeDraft ? 'Draft' : 'Completion'} ${headerCompletion}%`
-        : 'Group operations command center · all business units, shifts and duty managers'}
+        ? readOnly ? 'View-only access · submitted handovers from all business units'
+          : `${labelFor(businessUnits, headerContext.businessUnit)} · ${headerContext.shift} shift · ${shortDate(headerContext.reportDate)} · ${homeDraft ? 'Draft' : 'Completion'} ${headerCompletion}%`
+        : view === 'dashboard' ? 'Group operations command center · all business units, shifts and duty managers'
+          : `${labelFor(businessUnits, form.businessUnit)} · ${form.shift} shift · ${shortDate(form.reportDate)}`}
+      accessLabel={access.level === 'full' ? 'Admin' : access.level === 'view' ? 'View only' : 'Duty Manager'}
       userName={headerContext.dmName || form.dmName || ''}
+      userDetail={readOnly ? 'View access · all business units' : `${labelFor(businessUnits, headerContext.businessUnit)} · ${headerContext.shift} shift`}
       unread={alerts.filter((a) => !a.isRead).length}
       openAlerts={() => setAlertsOpen(true)}
-    /> : <header className={`top ${isWorkflow ? 'workflow-top' : ''}`}>
-      <button className="brand" onClick={() => leaveReport('home')}><span>DM</span><strong>Duty Manager</strong><small>Operations Handover</small></button>
-      <div className="top-context">
-        <span><small>Business unit</small><b>{labelFor(businessUnits, headerContext.businessUnit)}</b></span>
-        <span><small>{homeDraft ? 'Active draft' : 'Shift + date'}</small><b>{headerContext.shift} - {shortDate(headerContext.reportDate)}</b></span>
-        <span><small>Duty manager</small><b>{headerContext.dmName || form.dmName || 'Loading User...'}</b></span>
-        {!isWorkflow && <span><small>{homeDraft ? 'Draft completion' : 'Completion'}</small><b>{headerCompletion}%</b></span>}
-      </div>
-      {!isWorkflow && <button className="attention-chip" onClick={() => drafts[0] ? openDraft(drafts[0]) : setMessage('Start or continue a handover to review attention items.')}>{pendingItems.length || alerts.filter((a) => !a.isRead).length} items need attention</button>}
-      {!isWorkflow && (() => {
-        const unread = alerts.filter((a) => !a.isRead).length
-        return <button className="alert-button" onClick={() => setAlertsOpen(true)} aria-label={`Alerts, ${unread} unread`}>Alerts <b className={unread ? 'has-unread' : 'is-zero'}>{unread}</b></button>
-      })()}
-    </header>}
-    <PulseNavigation client={pulseClient} variant="overlay" isOpen={pulseOpen} onClose={() => setPulseOpen(false)} powerAppId={DUTY_MANAGER_APP_ID} />
+    />
     <ToastRack message={message} onClose={clearMessage} />
     <ConfirmHost />
-    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} dutyManagerFilter={dutyManagerFilter} dutyManagerOptions={dutyManagerOptions} setDutyManagerFilter={(value: string) => { setDutyManagerFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} totalResults={filteredReports.length} dateFilter={reportDateFilter} setDateFilter={(value: string) => { setReportDateFilter(value); setReportPage(1) }} sort={reportSort} setSort={(sort: ReportSort) => { setReportSort(sort); setReportPage(1) }} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={deleteDraft} openReport={openReport} />}
-    {view === 'dashboard' && <Dashboard data={dashboard} refresh={refreshDashboard} openReport={openReport} openIssue={(row: any) => { setView('report'); setTab(row.category === 'Administrative' ? 'admin' : 'ops') }} />}
-    {view === 'report' && <Editor state={{ form, updateForm, tab, setTab, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents: (next: EventItem[]) => { const removed = events.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('event', removed); else setEvents(next) }, adminIssues, setAdminIssues: (next: AdminIssue[]) => { const removed = adminIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('admin', removed); else setAdminIssues(next) }, opsIssues, setOpsIssues: (next: OpsIssue[]) => { const removed = opsIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('ops', removed); else setOpsIssues(next) }, damaEntries, setDamaEntries: (next: DamaEntry[]) => { const removed = damaEntries.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('dama', removed); else setDamaEntries(next) }, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport, duplicateDraft, openDraft, previous }} />}
+    {view === 'home' && <Home form={form} completion={completion} completionPercent={completionPercent} pendingItems={pendingItems} drafts={drafts} reports={pagedReports} reportFilter={reportFilter} setReportFilter={(value: string) => { setReportFilter(value); setReportPage(1) }} dutyManagerFilter={dutyManagerFilter} dutyManagerOptions={dutyManagerOptions} setDutyManagerFilter={(value: string) => { setDutyManagerFilter(value); setReportPage(1) }} reportPage={reportPage} totalReportPages={totalReportPages} totalResults={filteredReports.length} dateFilter={reportDateFilter} setDateFilter={(value: string) => { setReportDateFilter(value); setReportPage(1) }} sort={reportSort} setSort={(sort: ReportSort) => { setReportSort(sort); setReportPage(1) }} nextPage={() => setReportPage((p) => Math.min(totalReportPages, p + 1))} prevPage={() => setReportPage((p) => Math.max(1, p - 1))} startShift={startShift} openDraft={openDraft} deleteDraft={deleteDraft} openReport={openReport} readOnly={readOnly} />}
+    {view === 'dashboard' && canSeeCommandCenter && <Dashboard data={dashboard} refresh={refreshDashboard} openReport={openReport} />}
+    {view === 'report' && !readOnly && <Editor state={{ form, updateForm, tab, setTab, completionPercent, busy, reportId, saveGeneral, submitReport, completion, discharges, events, setEvents: (next: EventItem[]) => { const removed = events.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('event', removed); else setEvents(next) }, adminIssues, setAdminIssues: (next: AdminIssue[]) => { const removed = adminIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('admin', removed); else setAdminIssues(next) }, opsIssues, setOpsIssues: (next: OpsIssue[]) => { const removed = opsIssues.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('ops', removed); else setOpsIssues(next) }, damaEntries, setDamaEntries: (next: DamaEntry[]) => { const removed = damaEntries.find((row) => !next.some((item) => item.id === row.id)); if (removed) deleteSectionRow('dama', removed); else setDamaEntries(next) }, earlyDischarges, setEarlyDischarges, searchUsers, userMatches, setUserMatches, eventTypes, eventCodes, loadEventCodes, adminCatalog, pendingItems, openReport, duplicateDraft, openDraft, previous, autoCounts, refreshAutoCounts }} />}
     {view === 'submitted' && <Submitted form={form} events={events} opsIssues={opsIssues} pendingItems={pendingItems} openReport={() => reportId && openReport(reportId)} downloadPdf={() => { if (!reportId) return; setPdfOnOpen(true); openReport(reportId) }} goHome={() => setView('home')} />}
     {alertsOpen && <AlertDrawer alerts={alerts} markAlertRead={markAlertRead} markAlertUnread={markAlertUnread} openReport={(id: string) => { openReport(id); setAlertsOpen(false) }} close={() => setAlertsOpen(false)} />}
-    {selectedReport && <ReportModal bundle={selectedReport} close={() => setSelectedReport(null)} acknowledge={acknowledgeReport} autoDownload={pdfOnOpen} onAutoDownloaded={() => setPdfOnOpen(false)} />}
+    {selectedReport && <ReportModal bundle={selectedReport} close={() => setSelectedReport(null)} acknowledge={readOnly ? undefined : acknowledgeReport} autoDownload={pdfOnOpen} onAutoDownloaded={() => setPdfOnOpen(false)} />}
   </div>
 }
 
@@ -1274,27 +1245,72 @@ function NavIcon({ name }: { name: NavIconName }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{icons[name]}</svg>
 }
 
-// Shared page header for Home and Dashboard: one compact row. The breadcrumb doubles as the page title
-// (no separate bold heading), with the context line under it; action, alerts bell and user on the right.
-function AppHeader({ crumb, context, actions, userName, unread, openAlerts }: {
-  crumb: string; context: string; actions?: ReactNode
-  userName: string; unread: number; openAlerts: () => void
+// Report sections: key, icon, accessible name, short label.
+const reportLinks: [TabKey, NavIconName, string, string][] = [
+  ['general', 'identity', 'General / Shift Identity', 'General'],
+  ['events', 'events', 'Hospital Events', 'Events'],
+  ['admin', 'admin', 'Administrative Issues', 'Admin'],
+  ['flow', 'flow', 'Patient Flow', 'Patient flow'],
+  ['ops', 'operations', 'Operations', 'Operations'],
+  ['experience', 'experience', 'Experience', 'Experience'],
+  ['summary', 'summary', 'Summary / Handover Review', 'Summary'],
+]
+
+// App pages in the sections menu. Report sections are in the report bar inside the report itself.
+function SectionLinks({ view, canSeeCommandCenter, goHome, goDashboard }: { view: MainView; canSeeCommandCenter: boolean; goHome: () => void; goDashboard: () => void }) {
+  const link = (active: boolean, onClick: () => void, label: string, icon: NavIconName, text: string) =>
+    <button type="button" className={active ? 'active' : undefined} onClick={onClick} aria-label={label} title={label} aria-current={active ? 'page' : undefined}>
+      <NavIcon name={icon} /><span>{text}</span>
+    </button>
+  return <>
+    {link(view === 'home', goHome, 'Home / Shift Command', 'home', 'Home')}
+    {canSeeCommandCenter && link(view === 'dashboard', goDashboard, 'Command Center', 'dashboard', 'Dashboard')}
+  </>
+}
+
+// Top-bar button that hides or shows the sections menu (.exp020-burger-host in Talent Acquisition).
+function ShellTriggers({ sectionsOpen, toggleSections }: { sectionsOpen: boolean; toggleSections: () => void }) {
+  return <button type="button" className="shell-burger" onClick={toggleSections} aria-expanded={sectionsOpen}
+    aria-label={sectionsOpen ? 'Hide sections menu' : 'Show sections menu'} title={sectionsOpen ? 'Hide sections menu' : 'Show sections menu'}>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18" /></svg>
+  </button>
+}
+
+// One top bar on every page (header.topbar in Talent Acquisition): menu button, optional breadcrumb and the app
+// name on the left (the page name is kept for screen readers); access pill, alerts bell and user on the right.
+type Crumb = { label: string; onClick?: () => void }
+function AppHeader({ lead, breadcrumb, crumb, context, accessLabel, userName, userDetail, unread, openAlerts }: {
+  lead?: ReactNode; breadcrumb?: Crumb[]; crumb: string; context: string; accessLabel: string
+  userName: string; userDetail: string; unread: number; openAlerts: () => void
 }) {
   const initials = userName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'DM'
   return <header className="app-header">
-    <div className="app-header-title">
-      <nav className="home-breadcrumb" aria-label="Breadcrumb"><span>Home</span><span aria-hidden="true">/</span><h1>{crumb}</h1></nav>
-      <p>{context}</p>
+    <div className={`app-header-lead${breadcrumb ? ' has-breadcrumb' : ''}`}>
+      {lead}
+      <div className="app-header-title">
+        {breadcrumb && <nav className="topbar-breadcrumb" aria-label="Breadcrumb">
+          {breadcrumb.map((item, index) => <Fragment key={item.label}>
+            {index > 0 && <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" /></svg>}
+            {item.onClick ? <button type="button" onClick={item.onClick}>{item.label}</button>
+              : <span aria-current={index === breadcrumb.length - 1 ? 'page' : undefined}>{item.label}</span>}
+          </Fragment>)}
+        </nav>}
+        <h1>Duty Manager</h1>
+        <p className="sr-only">{crumb}: {context}</p>
+      </div>
     </div>
     <div className="app-header-user">
-      {actions}
+      <span className="topbar-context-action" title="Your Duty Manager access">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="10" r="3" /><path d="M6.7 18.2a6 6 0 0 1 10.6 0" /></svg>
+        <span>{accessLabel}</span>
+      </span>
       <button type="button" className="home-bell" onClick={openAlerts} aria-label={`Alerts, ${unread} unread`} title="Alerts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
         {unread > 0 && <b>{unread > 99 ? '99+' : unread}</b>}
       </button>
       <div className="home-user">
         <span className="home-avatar" aria-hidden="true">{initials}</span>
-        <span className="home-user-text"><strong>{userName || 'Loading user...'}</strong><small>Duty Manager</small></span>
+        <span className="home-user-text"><strong>{userName || 'Loading user...'}</strong><small>{userDetail}</small></span>
       </div>
     </div>
   </header>
@@ -1310,28 +1326,99 @@ function SortHeader({ label, sortKey, sort, setSort }: { label: string; sortKey:
   </button>
 }
 
-function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, dutyManagerFilter, dutyManagerOptions, setDutyManagerFilter, reportPage, totalReportPages, totalResults, dateFilter, setDateFilter, sort, setSort, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport }: any) {
+function AccessGate({ access, retry }: { access: { level: string; reason?: string }; retry: () => void }) {
+  if (access.level === 'checking') return <div className="startup-loading">Checking your Duty Manager access...</div>
+  return <main className="access-gate" role="alert">
+    <div className="access-gate-card">
+      <span className="dm-mark" aria-hidden="true">DM</span>
+      <h1>{access.level === 'error' ? 'Access could not be checked' : 'You don’t have access to Duty Manager'}</h1>
+      <p>{access.reason || 'Duty Manager is available to users with one of these security roles in DT New:'}</p>
+      {access.level === 'none' && !access.reason && <ul>
+        <li><b>Duty Managers-Duty Managers</b>: Home and the handover report pages</li>
+        <li><b>Duty Manager-View Access</b>: every page and report, including the Command Center, without making changes</li>
+        <li><b>Duty Managers-Admin</b> or <b>Duty Manager - System Customizer</b>: everything, including the Command Center</li>
+      </ul>}
+      <p className="access-gate-help">{access.level === 'error' ? 'Try again in a moment.' : 'Ask your Power Platform administrator to assign you the right role, then select Check again.'}</p>
+      <button type="button" className="btn primary" onClick={retry}>{access.level === 'error' ? 'Try again' : 'Check again'}</button>
+    </div>
+  </main>
+}
+
+// Unfinished drafts grouped by hospital: one box per business unit, newest draft first.
+function DraftBoard({ drafts, openDraft, deleteDraft }: { drafts: DraftRecord[]; openDraft: (draft: DraftRecord) => void; deleteDraft: (id: string) => void }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const currentId = drafts[0]?.draftId
+  return <section className="draft-strip draft-board-section">
+    <div className="eyebrow">Unfinished drafts</div>
+    <div className="draft-board">
+      {businessUnits.map(([value, label]) => {
+        const unitDrafts = drafts.filter((d) => String(d.businessUnit) === String(value))
+        const shown = expanded[value] ? unitDrafts : unitDrafts.slice(0, 2)
+        return <article className={`draft-unit${unitDrafts.some((d) => d.draftId === currentId) ? ' has-current' : ''}`} key={value}>
+          <header className="draft-unit-head"><strong>{label}</strong><span>{unitDrafts.length ? `${unitDrafts.length} draft${unitDrafts.length === 1 ? '' : 's'}` : 'No drafts'}</span></header>
+          {unitDrafts.length === 0 ? <p className="draft-unit-empty">No unfinished drafts for {label}.</p> : <ul className="draft-unit-list">
+            {shown.map((d) => <li className={`draft-card${d.draftId === currentId ? ' current' : ''}`} key={d.draftId}>
+              <div className="draft-card-text">
+                <b>{d.shift || 'Morning'} · {formatDate(d.reportDate)}</b>
+                <small>{d.draftId === currentId ? <em className="draft-current">Current draft · </em> : null}Saved {formatDate(d.timestamp)}</small>
+              </div>
+              <div className="draft-card-actions">
+                <button className="btn danger small" onClick={() => deleteDraft(d.draftId)} aria-label={`Delete ${label} ${d.shift} draft from ${formatDate(d.reportDate)}`}>Delete</button>
+                <button className={`btn small${d.draftId === currentId ? ' primary' : ''}`} onClick={() => openDraft(d)} aria-label={`Continue ${label} ${d.shift} draft from ${formatDate(d.reportDate)}`}>Continue</button>
+              </div>
+            </li>)}
+          </ul>}
+          {unitDrafts.length > 2 && <button type="button" className="draft-unit-more" onClick={() => setExpanded((current) => ({ ...current, [value]: !current[value] }))}>{expanded[value] ? 'Show fewer' : `Show all ${unitDrafts.length}`}</button>}
+        </article>
+      })}
+    </div>
+  </section>
+}
+
+// Choose the hospital before a report is created; the shift comes from the clock.
+function StartReportModal({ defaultBusinessUnit, close, start }: { defaultBusinessUnit: string; close: () => void; start: (businessUnit: string) => void }) {
+  const [businessUnit, setBusinessUnit] = useState(defaultBusinessUnit || businessUnits[0]?.[0] || '')
+  const shift = shiftForDate(new Date())
+  return <ModalShell title="Start new report" tone="default" onClose={close}>
+    <p className="field-help">A report belongs to one hospital. Its events, issues, patients and carried-over items all come from that hospital.</p>
+    <div className="grid report-grid two">
+      <SelectField label="Business Unit *" value={businessUnit} options={businessUnits} onChange={setBusinessUnit} />
+      <Field label="Shift"><input className="auto-filled-input" value={`${shift} (${shiftWindows[shift]})`} readOnly aria-readonly="true" tabIndex={-1} /></Field>
+    </div>
+    <div className="modal-actions"><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!businessUnit} onClick={() => start(businessUnit)}>Start report</button></div>
+  </ModalShell>
+}
+
+function Home({ form, completion, completionPercent, pendingItems, drafts, reports, reportFilter, setReportFilter, dutyManagerFilter, dutyManagerOptions, setDutyManagerFilter, reportPage, totalReportPages, totalResults, dateFilter, setDateFilter, sort, setSort, nextPage, prevPage, startShift, openDraft, deleteDraft, openReport, readOnly }: any) {
   const activeDraft = drafts[0]
+  const [starting, setStarting] = useState(false)
+  // Open items of the draft shown here (not of whichever report was opened last).
+  const draftPending = activeDraft
+    ? [...(activeDraft.adminIssues || []).filter((x: AdminIssue) => x.status !== '778000001'), ...(activeDraft.opsIssues || []).filter((x: OpsIssue) => x.statusId !== '778000001')]
+    : pendingItems
   const currentManager = activeDraft?.dmName || form.dmName || 'Duty Manager'
   const greeting = timeGreeting()
   const activeDraftCompletion = activeDraft ? draftCompletionPercent(activeDraft) : completionPercent
   const activeDraftLabel = activeDraft ? `${labelFor(businessUnits, activeDraft.businessUnit)} - ${activeDraft.shift || 'Morning'} - ${formatDate(activeDraft.reportDate)}` : ''
   const attentionCount = activeDraft ? draftMissingCount(activeDraft) : completion.missing.length
-  const readyItems = [
-    ['Shift identity', form.dmName && form.businessUnit && form.reportDate ? 'Complete' : 'Attention', form.dmName && form.businessUnit && form.reportDate ? 'ok' : 'warn'],
-    ['Hospital events', 'Clear', 'ok'],
-    ['Administrative issues', pendingItems.some((x: any) => 'catLabel' in x) ? 'Attention' : 'Clear', pendingItems.some((x: any) => 'catLabel' in x) ? 'attention' : 'ok'],
-    ['Patient flow', completion.missing?.some((x: string) => x.toLowerCase().includes('flow')) ? 'Action required' : 'Complete', completion.missing?.some((x: string) => x.toLowerCase().includes('flow')) ? 'attention' : 'ok'],
-  ]
+  // Readiness of the active draft, from the same required-field validation the Summary page uses.
+  const readinessMissing: string[] = activeDraft ? draftValidation(activeDraft).missing : completion.missing
+  const readinessFor = (tabs: TabKey[]) => readinessMissing.filter((field) => tabs.includes(missingFieldTab(field))).length
+  const readyItems = ([['Shift identity', ['general']], ['Hospital events', ['events']], ['Administrative issues', ['admin']], ['Patient flow', ['flow']], ['Operations', ['ops']], ['Experience and summary', ['experience', 'summary']]] as [string, TabKey[]][])
+    .map(([label, tabs]) => { const count = readinessFor(tabs); return [label, count ? `${count} missing` : 'Complete', count ? 'attention' : 'ok'] })
   return <main className="home-modern">
     <section className="home-hero">
       <div>
         <h1>{greeting}, {currentManager}.</h1>
-        <p>{activeDraft ? `Active draft: ${activeDraftLabel}. ${attentionCount} items need attention before responsibility can transfer.` : 'No handover draft is currently in progress. Start a shift to begin a new Duty Manager handover.'}</p>
+        <p>{readOnly ? 'You have view-only access. Open any submitted handover below to review it, or use the Command Center for the operations dashboard.'
+          : activeDraft ? `Active draft: ${activeDraftLabel}. ${attentionCount} items need attention before responsibility can transfer.` : 'No handover draft is currently in progress. Start a shift to begin a new Duty Manager handover.'}</p>
       </div>
-      <button type="button" className="btn primary hero-start" onClick={startShift}>+ Start new report</button>
+      {!readOnly && <button type="button" className="btn primary hero-start" onClick={() => setStarting(true)}>+ Start new report</button>}
     </section>
+    {starting && !readOnly && <StartReportModal defaultBusinessUnit={form.businessUnit} close={() => setStarting(false)} start={(businessUnit: string) => { setStarting(false); startShift(businessUnit) }} />}
 
+    {/* The current-shift and draft panels are about the user's own handover, which view-only users don't have. */}
+    {!readOnly && <>
     <div className="home-section-head">
       <div>
         <h2>Current shift</h2>
@@ -1354,7 +1441,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
           </div>
         </article>}
 
-        {(pendingItems.length ? pendingItems.slice(0, 2) : completion.missing.slice(0, 2).map((label: string) => ({ label }))).map((item: any, index: number) => (
+        {(draftPending.length ? draftPending.slice(0, 2) : readinessMissing.slice(0, 2).map((label: string) => ({ label }))).map((item: any, index: number) => (
           <article className="current-row" key={item.id || item.label || index}>
             <div>
               <h3>{item.catLabel || item.desc || item.label || 'Review required'}</h3>
@@ -1379,16 +1466,8 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
       </aside>
     </section>
 
-    {drafts.length > 0 && <section className="draft-strip">
-      <div className="eyebrow">Unfinished drafts</div>
-      {drafts.slice(0, 5).map((d: DraftRecord, index: number) => <div className="draft-row" key={d.draftId}>
-        <span>{labelFor(businessUnits, d.businessUnit)} - {d.shift || 'Morning'} - {formatDate(d.reportDate)} - {d.dmName || 'Duty Manager'}{index === 0 && <em className="draft-current"> · Current draft</em>}</span>
-        <div className="row-actions">
-          <button className="btn danger small" onClick={() => deleteDraft(d.draftId)}>Delete</button>
-          <button className={`btn small${index === 0 ? ' primary' : ''}`} onClick={() => openDraft(d)}>Continue</button>
-        </div>
-      </div>)}
-    </section>}
+    <DraftBoard drafts={drafts} openDraft={openDraft} deleteDraft={deleteDraft} />
+    </>}
 
     <div className="home-section-head">
       <div>
@@ -1428,7 +1507,7 @@ function Home({ form, completion, completionPercent, pendingItems, drafts, repor
           <b>{labelFor(businessUnits, r.dma_businessunit)} - {shiftFromValue(r.dma_shifttype)} - {shortDate(r.dma_reportdate)}</b>
           <span>{displayName(r)}</span>
           <span><i className={`status-token ${acknowledged ? 'ok' : 'warning'}`}>{acknowledged ? 'Acknowledged' : 'Submitted'}</i></span>
-          <span>{r.dma_hotissues || 'None'}</span>
+          <span className="ledger-notes" title={r.dma_hotissues || undefined}>{r.dma_hotissues || 'None'}</span>
           <span>{shortTime(r.createdon)}</span>
           <button className="btn" onClick={() => openReport(r.dma_handoverreportid)}>Review</button>
         </div>
@@ -1463,107 +1542,200 @@ function draftCompletionPercent(draft: DraftRecord) {
   return result.ok ? 100 : Math.max(0, Math.round(((8 - result.missing.length) / 8) * 100))
 }
 
-function dateKey(value?: string) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+// ── Command Center figures ──
+// Every figure comes from the records linked to each submitted report (patient-flow summary, hospital
+// events, administrative issues, operations outages). Loaded in batches and cached until "Sync now".
+type PendingIssueRow = { id: string; reportId: string; issue: string; category: 'Administrative' | 'Operations'; status: string }
+type ReportMetrics = {
+  staff: string; admissions: number | null; discharges: number | null; majorIncidents: number
+  peak: { label: string; value: number } | null; erDama: number; erRetained: number; inpDama: number; pending: PendingIssueRow[]
+}
+const reportMetricsCache = new Map<string, ReportMetrics>()
+
+async function loadReportMetrics(reportIds: string[]): Promise<Record<string, ReportMetrics>> {
+  const ids = Array.from(new Set(reportIds.map((id) => cleanId(id).toLowerCase()).filter(Boolean)))
+  const missing = ids.filter((id) => !reportMetricsCache.has(id))
+  for (let start = 0; start < missing.length; start += 15) {
+    const chunk = missing.slice(start, start + 15)
+    const filter = `(${chunk.map((id) => `_dma_reportid_value eq ${id}`).join(' or ')})`
+    const [flows, events, admin, ops] = await Promise.all([
+      Services.flow.getAll({ select: ['_dma_reportid_value', 'dma_staffadequacy', 'dma_eradmissions', 'dma_opdadmissions', 'dma_planneddischarges', 'dma_unplanneddischarges', 'dma_erdama', 'dma_erdamaretention', 'dma_inpdama', ...PEAK_UNITS.map(([, field]) => field)], filter } as any),
+      Services.events.getAll({ select: ['_dma_reportid_value', 'dma_severitylevel'], filter } as any),
+      Services.adminEntries.getAll({ select: ['dma_administrativeissueentryid', '_dma_reportid_value', 'dma_resolutionstatus', 'dma_name'], filter } as any),
+      Services.ops.getAll({ select: ['dma_opeartionid', '_dma_reportid_value', 'dma_resolutionstatus', 'dma_name'], filter } as any),
+    ])
+    const forReport = (rows: any[], id: string) => rows.filter((row) => cleanId(row._dma_reportid_value).toLowerCase() === id)
+    for (const id of chunk) {
+      const flow = forReport(list(flows), id)[0]
+      const peak = peakUtilization(flow)
+      const unresolved = (rows: any[]) => rows.filter((row) => String(row.dma_resolutionstatus) !== '778000001')
+      reportMetricsCache.set(id, {
+        staff: flow?.dma_staffadequacy != null ? labelFor(staffOptions, flow.dma_staffadequacy) : 'Not recorded',
+        admissions: flow ? sumOrNull(flow.dma_eradmissions, flow.dma_opdadmissions) : null,
+        discharges: flow ? sumOrNull(flow.dma_planneddischarges, flow.dma_unplanneddischarges) : null,
+        majorIncidents: forReport(list(events), id).filter(isMajorEvent).length,
+        peak,
+        erDama: Number(flow?.dma_erdama) || 0,
+        erRetained: Number(flow?.dma_erdamaretention) || 0,
+        inpDama: Number(flow?.dma_inpdama) || 0,
+        pending: [
+          ...unresolved(forReport(list(admin), id)).map((row) => ({ id: row.dma_administrativeissueentryid, reportId: id, issue: row.dma_name || 'Administrative issue', category: 'Administrative' as const, status: labelFor(resolutionOptions, row.dma_resolutionstatus) })),
+          ...unresolved(forReport(list(ops), id)).map((row) => ({ id: row.dma_opeartionid, reportId: id, issue: row.dma_name || 'Operations outage', category: 'Operations' as const, status: labelFor(resolutionOptions, row.dma_resolutionstatus) })),
+        ],
+      })
+    }
+  }
+  return Object.fromEntries(ids.filter((id) => reportMetricsCache.has(id)).map((id) => [id, reportMetricsCache.get(id)!]))
 }
 
-function Dashboard({ data, refresh, openReport, openIssue }: any) {
-  const [dateFilter, setDateFilter] = useState(data?.date?.slice(0, 10) || new Date().toISOString().slice(0, 10))
-  const [shiftFilter, setShiftFilter] = useState(data?.shift || 'Morning')
+// ── KPI scorecard and Command Center export ──
+// The scorecard and the export both work from loadCommandCenterData (submitted reports in the range and their
+// records) and computeScorecard, so the exported KPIs are exactly the ones on screen.
+const KPI_MAX_DAYS = 93
+
+function KpiScorecard({ refreshToken, businessUnitFilter }: { refreshToken: number; businessUnitFilter: string }) {
+  const today = localDateKey(new Date().toISOString())
+  const [from, setFrom] = useState(() => localDateKey(addDays(today, -6).toISOString()))
+  const [to, setTo] = useState(today)
+  const [shift, setShift] = useState<'All' | KpiShift>('All')
+  const [data, setData] = useState<CommandCenterData | null>(null)
+  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; message?: string }>({ status: 'loading' })
+  const [exportStatus, setExportStatus] = useState('')
+  const days = from && to ? Math.round((addDays(to, 0).getTime() - addDays(from, 0).getTime()) / 86400000) + 1 : 0
+  const rangeError = !from || !to ? 'Choose both dates.' : days < 1 ? 'The start date is after the end date.' : days > KPI_MAX_DAYS ? `Choose a range of ${KPI_MAX_DAYS} days or less.` : ''
+  useEffect(() => {
+    if (rangeError) return
+    let cancelled = false
+    setState({ status: 'loading' })
+    loadCommandCenterData(from, to)
+      .then((loaded) => { if (!cancelled) { setData(loaded); setState({ status: 'ready' }) } })
+      .catch((error) => { if (!cancelled) setState({ status: 'error', message: `KPIs could not be loaded: ${errorMessage(error)}` }) })
+    return () => { cancelled = true }
+  }, [from, to, rangeError, refreshToken])
+  const shifts: KpiShift[] = shift === 'All' ? ['Morning', 'Evening', 'Night'] : [shift]
+  const columns = scorecardColumns(businessUnits)
+  const scorecard = data && state.status === 'ready' && !rangeError ? computeScorecard(data, { from, to, shifts, now: new Date() }, columns) : []
+  // The export follows these dates and shift, and the Business unit filter at the top of the Command Center.
+  const exportHospital = businessUnits.find(([, label]) => label === businessUnitFilter)?.[0] || 'all'
+  const exportScopeText = exportHospital === 'all' ? 'all hospitals' : labelFor(businessUnits, exportHospital)
+
+  function exportReport() {
+    if (!data || !scorecard.length) return
+    try {
+      const scope = { from, to, shifts, businessUnit: exportHospital, hospitals: businessUnits, generatedAt: new Date() }
+      const workbook = buildXlsx(buildCommandCenterWorkbook(data, scope))
+      const url = URL.createObjectURL(new Blob([workbook], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = exportFileName(scope)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500)
+      setExportStatus(`Report exported for ${exportScopeText}, ${from} to ${to}.`)
+    } catch (error) {
+      setExportStatus(`Export failed: ${errorMessage(error)}`)
+    }
+    window.setTimeout(() => setExportStatus(''), 5000)
+  }
+
+  return <section className="executive-queue kpi-scorecard" id="kpi-scorecard">
+    <div className="queue-head">
+      <div><div className="eyebrow">Performance</div><h2>KPI scorecard</h2><p>Submitted reports by shift date. When a shift was submitted twice, the latest report counts.</p></div>
+      <div className="kpi-controls">
+        <label><span>From</span><PulseDatePicker ariaLabel="KPIs from" value={from} onChange={setFrom} /></label>
+        <label><span>To</span><PulseDatePicker ariaLabel="KPIs to" value={to} onChange={setTo} /></label>
+        <label><span>Shift</span><PulseSelect ariaLabel="KPI shift" value={shift} onChange={(value) => setShift(value as 'All' | KpiShift)} options={[{ value: 'All', label: 'All shifts' }, ...(['Morning', 'Evening', 'Night'] as KpiShift[]).map((value) => ({ value, label: value }))]} /></label>
+        <button className="btn export-report" onClick={exportReport} disabled={!scorecard.length} title={`KPI scorecard and the reports, patient flow, events, issues and patient experience behind it, for ${exportScopeText}`}>Export report</button>
+      </div>
+    </div>
+    <p className="kpi-export-scope">Export report: these dates and shift, {exportScopeText} (Business unit filter at the top). Excel workbook with the KPIs and the report details behind them.</p>
+    {(rangeError || state.status === 'error' || exportStatus) && <div className={`dashboard-action-status ${rangeError || state.status === 'error' || exportStatus.startsWith('Export failed') ? 'error' : ''}`}>{rangeError || (state.status === 'error' ? state.message : exportStatus)}</div>}
+    <div className="kpi-table-wrap">
+      <table>
+        <thead><tr><th>KPI</th>{columns.map((column) => <th key={column.value}>{column.label}</th>)}</tr></thead>
+        <tbody>{KPI_DEFINITIONS.map((kpi) => <tr key={kpi.key}>
+          <td><strong>{kpi.label}</strong><small>{kpi.formula}</small></td>
+          {columns.map((column, index) => {
+            const result = scorecard[index]?.results[kpi.key]
+            return <td key={column.value} className={index === 0 ? 'kpi-total' : ''}>{result ? <><b>{result.text}</b><small>{result.detail}</small></> : <b>{state.status === 'loading' && !rangeError ? '...' : '–'}</b>}</td>
+          })}
+        </tr>)}</tbody>
+      </table>
+    </div>
+  </section>
+}
+
+function Dashboard({ data, refresh, openReport }: any) {
+  const [dateFilter, setDateFilter] = useState(() => shiftBusinessDate(data?.date || new Date().toISOString(), data?.shift || shiftForDate(new Date())))
+  const [shiftFilter, setShiftFilter] = useState<Shift>(data?.shift || shiftForDate(new Date()))
   const [buFilter, setBuFilter] = useState('All')
   const [dmFilter, setDmFilter] = useState('All')
   const [queueFilter, setQueueFilter] = useState<'all' | 'incidents' | 'unresolved'>('all')
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState('')
-  const [exportStatus, setExportStatus] = useState('')
-  const reportPool = data?.reports?.length ? data.reports : (data?.bus || []).map((b: any) => b.report).filter(Boolean)
+  const [metrics, setMetrics] = useState<Record<string, ReportMetrics>>({})
+  const [metricsError, setMetricsError] = useState('')
+  const [kpiRefresh, setKpiRefresh] = useState(0)
+  const reportPool: any[] = data?.reports || []
   const dmOptions = Array.from(new Set(reportPool.map((report: any) => displayName(report)).filter((name: string) => name && name !== 'N/A'))).sort() as string[]
-  const filteredReports = reportPool.filter((report: any) => {
-    const reportDate = dateKey(report?.dma_reportdate || report?.createdon)
-    return reportDate === dateFilter && shiftFromValue(report?.dma_shifttype) === shiftFilter && (dmFilter === 'All' || displayName(report) === dmFilter)
-  })
+  const filteredReports = reportPool.filter((report: any) => reportShiftDate(report) === dateFilter && shiftFromValue(report?.dma_shifttype) === shiftFilter && (dmFilter === 'All' || displayName(report) === dmFilter))
+  const filteredKey = filteredReports.map(reportKey).sort().join(',')
+  useEffect(() => {
+    if (!filteredKey) return
+    let cancelled = false
+    setMetricsError('')
+    loadReportMetrics(filteredKey.split(','))
+      .then((loaded) => { if (!cancelled) setMetrics((current) => ({ ...current, ...loaded })) })
+      .catch((error) => { if (!cancelled) setMetricsError(`Report figures could not be loaded: ${errorMessage(error)}`) })
+    return () => { cancelled = true }
+  }, [filteredKey])
   const busRows = businessUnits.map(([value, label]) => {
-    const report = filteredReports.find((row: any) => String(row.dma_businessunit) === String(value))
-    const fallback = (data?.bus || []).find((row: any) => String(row.value) === String(value))
+    // Every submitted report for the slot, newest first; more than one means a duplicate submission.
+    const slotReports = filteredReports.filter((row: any) => String(row.dma_businessunit) === String(value))
+      .sort((a: any, b: any) => timestampValue(b.createdon) - timestampValue(a.createdon))
+    const report = slotReports[0]
     const acknowledgedRow = Boolean(report?.dma_dmacknowledgmenttimestamp)
     return {
-      value,
-      label,
-      report,
+      value, label, report, slotReports,
+      metrics: report ? metrics[reportKey(report)] : undefined,
       status: report ? (acknowledgedRow ? 'acknowledged' : 'submitted') : 'unsubmitted',
       dm: report ? displayName(report) : '-',
-      statusLabel: report ? (acknowledgedRow ? 'Acknowledged' : 'Submitted') : 'Pending',
-      sla: report ? 'Submitted On Time' : 'Pending',
-      escalation: report ? 'Not required' : fallback?.escalation || 'Submission overdue',
+      statusLabel: report ? (acknowledgedRow ? 'Acknowledged' : 'Submitted') : 'Not submitted',
     }
   })
-  const visibleBus = busRows.filter((b: any) => (buFilter === 'All' || b.label === buFilter) && (dmFilter === 'All' || (b.report && b.dm === dmFilter)))
+  const visibleBus = busRows.filter((b) => (buFilter === 'All' || b.label === buFilter) && (dmFilter === 'All' || (b.report && b.dm === dmFilter)))
+  const visibleReports = visibleBus.flatMap((b) => b.slotReports)
+  const metricsFor = (report: any) => metrics[reportKey(report)]
   const expectedCount = visibleBus.length
-  const pendingBus = visibleBus.filter((b: any) => b.status === 'unsubmitted')
-  const acknowledged = visibleBus.filter((b: any) => b.status === 'acknowledged').length
-  const submittedCount = visibleBus.filter((b: any) => b.report).length
-  const majorCount = visibleBus.reduce((sum: number, b: any) => sum + Number(b.report?.dma_majorincidents || 0), 0)
-  const filteredAging = (data?.aging || []).filter((row: any) => (buFilter === 'All' || row.bu === buFilter) && (dmFilter === 'All' || row.owner === dmFilter))
-  const incidentRows = filteredReports
-    .filter((report: any) => (buFilter === 'All' || labelFor(businessUnits, report.dma_businessunit) === buFilter) && Number(report.dma_majorincidents || 0) > 0)
-    .map((report: any) => ({ id: `incident-${report.dma_handoverreportid}`, reportId: report.dma_handoverreportid, issue: report.dma_name || 'Major incident report', bu: labelFor(businessUnits, report.dma_businessunit), owner: displayName(report), category: 'Major incident', age: 'Current shift' }))
-  const queueRows = queueFilter === 'incidents' ? incidentRows : filteredAging
+  const pendingBus = visibleBus.filter((b) => b.status === 'unsubmitted')
+  const acknowledged = visibleBus.filter((b) => b.status === 'acknowledged').length
+  const submittedCount = visibleBus.filter((b) => b.report).length
+  const majorCount = visibleReports.reduce((sum: number, report: any) => sum + (metricsFor(report)?.majorIncidents || 0), 0)
+  const unresolvedRows = visibleReports.flatMap((report: any) => (metricsFor(report)?.pending || []).map((row) => ({
+    ...row, bu: labelFor(businessUnits, report.dma_businessunit), owner: displayName(report), age: `Reported ${shortDate(report.dma_reportdate || report.createdon)}`,
+  })))
+  const incidentRows = visibleReports.filter((report: any) => (metricsFor(report)?.majorIncidents || 0) > 0).map((report: any) => ({
+    id: `incident-${reportKey(report)}`, reportId: report.dma_handoverreportid, issue: `${report.dma_name || 'Report'}: ${metricsFor(report)?.majorIncidents} major incident${metricsFor(report)?.majorIncidents === 1 ? '' : 's'}`,
+    bu: labelFor(businessUnits, report.dma_businessunit), owner: displayName(report), category: 'Major incident', status: 'Major', age: `Reported ${shortDate(report.dma_reportdate || report.createdon)}`,
+  }))
+  const queueRows = queueFilter === 'incidents' ? incidentRows : queueFilter === 'unresolved' ? unresolvedRows : [...incidentRows, ...unresolvedRows]
   const queueLabel = queueFilter === 'incidents' ? 'Showing major incidents' : queueFilter === 'unresolved' ? 'Showing unresolved issues' : 'Showing all issues'
-  const blockerCount = Math.max(filteredAging.length, visibleBus.reduce((sum: number, b: any) => sum + Number(b.report?.dma_pendingissues || 0), 0))
+  const blockerCount = unresolvedRows.length
   const actionRequired = pendingBus.length + blockerCount
-  function exportDashboardReport() {
-    const exportRows = filteredReports
-      .filter((report: any) => buFilter === 'All' || labelFor(businessUnits, report.dma_businessunit) === buFilter)
-      .map((report: any) => {
-        const created = report.createdon ? new Date(report.createdon) : null
-        const acknowledgedAt = report.dma_dmacknowledgmenttimestamp ? new Date(report.dma_dmacknowledgmenttimestamp) : null
-        const acknowledgmentMinutes = created && acknowledgedAt && !Number.isNaN(created.getTime()) && !Number.isNaN(acknowledgedAt.getTime())
-          ? Math.max(0, Math.round((acknowledgedAt.getTime() - created.getTime()) / 60000))
-          : ''
-        return {
-          'Report ID': report.dma_handoverreportid || '',
-          'Report Name': report.dma_name || '',
-          'Report Date/Time': report.dma_reportdate || '',
-          'Created Date/Time': report.createdon || '',
-          'Business Unit': labelFor(businessUnits, report.dma_businessunit),
-          'Shift': shiftFromValue(report.dma_shifttype),
-          'Duty Manager': displayName(report),
-          'Report Status': report.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Submitted',
-          'Acknowledged Date/Time': report.dma_dmacknowledgmenttimestamp || '',
-          'Minutes to Acknowledge': acknowledgmentMinutes,
-          'Hot Issues': report.dma_hotissues || '',
-          'Major Incidents': report.dma_majorincidents || 0,
-          'Pending Issues': report.dma_pendingissues || 0,
-          'ER DAMA': report.dma_erdama || 0,
-          'INP DAMA': report.dma_inpdama || 0,
-        }
-      })
-    if (!exportRows.length) {
-      setExportStatus('No records match the selected filters.')
-      return
-    }
-    const columns = Object.keys(exportRows[0])
-    const escapeCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
-    const csv = `\uFEFF${columns.map(escapeCell).join(',')}\r\n${exportRows.map((row: Record<string, unknown>) => columns.map((column) => escapeCell(row[column])).join(',')).join('\r\n')}`
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `duty-manager-operations-${dateFilter || 'all-dates'}-${shiftFilter.toLowerCase()}.csv`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1500)
-    setExportStatus(`${exportRows.length} report${exportRows.length === 1 ? '' : 's'} exported.`)
-    window.setTimeout(() => setExportStatus(''), 4000)
-  }
+  const loadingFigures = visibleReports.some((report: any) => !metricsFor(report)) && !metricsError
+  const figure = (b: (typeof busRows)[number], value: (m: ReportMetrics) => string | number) => !b.report ? '-' : b.metrics ? value(b.metrics) : '...'
+
   async function syncDashboard() {
     if (syncing) return
     setSyncing(true)
     setSyncError('')
     try {
+      reportMetricsCache.clear()
+      clearCommandCenterData()
+      setKpiRefresh((count) => count + 1)
+      setMetrics({})
       await refresh()
     } catch (error) {
       setSyncError(`Sync failed: ${errorMessage(error)}`)
@@ -1571,68 +1743,86 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
       setSyncing(false)
     }
   }
+  // Background refresh every 5 minutes and when the user returns: reload the reports and their figures,
+  // keeping the current figures on screen until the new ones arrive.
+  const refreshRef = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    refreshRef.current = async () => {
+      if (syncing) return
+      try {
+        reportMetricsCache.clear()
+        clearCommandCenterData()
+        setKpiRefresh((count) => count + 1)
+        await refresh()
+        if (filteredKey) setMetrics(await loadReportMetrics(filteredKey.split(',')))
+      } catch (error) {
+        console.warn('Command Center background refresh failed', error)
+      }
+    }
+  })
+  useEffect(() => {
+    const run = () => { refreshRef.current() }
+    const timer = window.setInterval(run, AUTO_COUNTS_REFRESH_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible') run() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
   function showQueue(filter: 'all' | 'incidents' | 'unresolved') {
     setQueueFilter(filter)
     window.setTimeout(() => document.getElementById('executive-issue-queue')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
   }
-  function handleQueueRow(row: any) {
-    if (row.reportId) openReport(row.reportId)
-    else openIssue(row)
-  }
   return <section className="dashboard command-dashboard">
     <div className="command-head no-title">
       <div className="command-controls">
-        <label><span>Date</span><PulseDatePicker ariaLabel="Date" value={dateFilter} onChange={setDateFilter} /></label>
-        <label><span>Shift</span><PulseSelect ariaLabel="Shift" value={shiftFilter} onChange={setShiftFilter} options={['Morning', 'Evening', 'Night'].map((shift) => ({ value: shift, label: shift }))} /></label>
+        <label><span>Shift date</span><PulseDatePicker ariaLabel="Shift date" value={dateFilter} onChange={setDateFilter} /></label>
+        <label><span>Shift</span><PulseSelect ariaLabel="Shift" value={shiftFilter} onChange={(shift) => setShiftFilter(shift as Shift)} options={(['Morning', 'Evening', 'Night'] as Shift[]).map((shift) => ({ value: shift, label: `${shift} (${shiftWindows[shift]})` }))} /></label>
         <label><span>Business unit</span><PulseSelect ariaLabel="Business unit" value={buFilter} onChange={setBuFilter} options={[{ value: 'All', label: 'All' }, ...businessUnits.map(([, label]) => ({ value: label, label }))]} /></label>
         <label><span>Duty manager</span><PulseSelect ariaLabel="Duty manager" value={dmFilter} onChange={setDmFilter} options={[{ value: 'All', label: 'All' }, ...dmOptions.map((name) => ({ value: name, label: name }))]} /></label>
         <span className="updated-pill">Updated {data?.updated || 'not yet'}</span>
-        <button className="btn export-report" onClick={exportDashboardReport}>Export Excel</button>
         <button className="btn sync" onClick={syncDashboard} disabled={syncing}>{syncing ? 'Syncing...' : 'Sync now'}</button>
       </div>
     </div>
-    {(syncError || exportStatus) && <div className={`dashboard-action-status ${syncError ? 'error' : ''}`}>{syncError || exportStatus}</div>}
+    {(syncError || metricsError) && <div className="dashboard-action-status error">{syncError || metricsError}</div>}
 
     <section className="command-signal-grid">
       <button type="button" className="signal-card dark is-clickable" onClick={() => showQueue('incidents')} aria-label={`System attention: ${majorCount} major incidents. View incidents`}>
         <small>System attention</small>
-        <strong>{majorCount} major incidents</strong>
+        <strong>{loadingFigures ? '...' : majorCount} major incident{majorCount === 1 ? '' : 's'}</strong>
         <p>{majorCount ? 'Major event escalation active' : 'No major incidents'}</p>
       </button>
       <button type="button" className="signal-card is-clickable" onClick={() => showQueue('unresolved')} aria-label={`Active blockers: ${blockerCount} unresolved issues. View unresolved issues`}>
         <small>Active blockers</small>
-        <strong>{blockerCount} unresolved issues</strong>
-        <p>{blockerCount ? `${blockerCount} issue${blockerCount === 1 ? '' : 's'} require ownership` : 'No active blockers require ownership'}</p>
+        <strong>{loadingFigures ? '...' : blockerCount} unresolved issue{blockerCount === 1 ? '' : 's'}</strong>
+        <p>{blockerCount ? `${blockerCount} issue${blockerCount === 1 ? ' requires' : 's require'} ownership` : 'No active blockers require ownership'}</p>
       </button>
       <article className="signal-card soft">
         <small>Reporting</small>
         <strong>{submittedCount}/{expectedCount} submitted</strong>
-        <p>{pendingBus.length ? `${pendingBus.length} BUs pending` : 'All selected BUs submitted'}</p>
+        <p>{pendingBus.length ? `${pendingBus.length} BU${pendingBus.length === 1 ? '' : 's'} not submitted` : 'All selected BUs submitted'}</p>
       </article>
     </section>
 
     <div className="command-section-title">
       <h2>Business unit operations network</h2>
-      <p>Handover state and supported operational signals.</p>
+      <p>Figures from each submitted report's patient flow, events and open issues.</p>
     </div>
     <div className="command-network">
       <section className="network-table-card">
         <div className="network-head">
-          <span>Unit / Duty Manager</span><span>Handover State</span><span>Staff</span><span>Incidents</span><span>Flow</span><span>Peak Capacity</span><span>ER DAMA</span><span>Pending</span>
+          <span>Unit / Duty Manager</span><span>Handover State</span><span>Staff</span><span>Major incidents</span><span>Admissions / discharges</span><span>Peak utilization</span><span>ER DAMA</span><span>Unresolved</span>
         </div>
         {visibleBus.length === 0 && <div className="network-filter-empty"><strong>No records found</strong><span>No business-unit reports match the selected date, shift, business unit, and duty manager filters.</span></div>}
-        {visibleBus.map((b: any) => {
-          const submittedRow = Boolean(b.report)
+        {visibleBus.map((b) => {
           const stateClass = b.status === 'acknowledged' ? 'ok' : b.status === 'submitted' ? 'info' : 'critical'
           return <article className={`network-row ${b.status}`} id={`network-row-${b.label}`} key={b.value}>
-            <div><strong>{b.label}</strong><small>{submittedRow ? b.dm : `${shiftFilter} report not submitted`}</small></div>
-            <span className={`status-token ${stateClass}`}>{b.status === 'unsubmitted' ? 'Report overdue' : b.statusLabel}</span>
-            <b>{submittedRow ? 'Adequate' : 'Overdue by'}</b>
-            <b>{b.report?.dma_majorincidents || 0}</b>
-            <b>{submittedRow ? `${b.report?.dma_admissions ?? 0} -> ${b.report?.dma_discharges ?? 0}` : 'Overdue'}</b>
-            <b>{b.report?.dma_inputilization ? `ICU ${b.report.dma_inputilization}%` : submittedRow ? 'Stable' : 'Pending report'}</b>
-            <b>{b.report?.dma_erdama != null ? `${b.report.dma_erdama}%` : submittedRow ? '0%' : 'Pending report'}</b>
-            <b>{b.status === 'unsubmitted' ? '' : Number(b.report?.dma_pendingissues || 0)}</b>
+            <div><strong>{b.label}</strong><small>{b.report ? b.dm : `${shiftFilter} report not submitted`}</small>{b.slotReports.length > 1 && <small className="duplicate-note">{b.slotReports.length} reports submitted for this shift (latest shown)</small>}</div>
+            <span className={`status-token ${stateClass}`}>{b.statusLabel}</span>
+            <b>{figure(b, (m) => m.staff)}</b>
+            <b>{figure(b, (m) => m.majorIncidents)}</b>
+            <b>{figure(b, (m) => m.admissions == null && m.discharges == null ? 'Not recorded' : `${m.admissions ?? '-'} / ${m.discharges ?? '-'}`)}</b>
+            <b>{figure(b, (m) => m.peak ? `${m.peak.label} ${m.peak.value}%` : 'Not recorded')}</b>
+            <b>{figure(b, (m) => m.erDama ? `${m.erDama} case${m.erDama === 1 ? '' : 's'} · ${m.erRetained} retained` : '0')}</b>
+            <b>{figure(b, (m) => m.pending.length)}</b>
           </article>
         })}
       </section>
@@ -1654,11 +1844,18 @@ function Dashboard({ data, refresh, openReport, openIssue }: any) {
       </div>
       <table>
         <thead><tr><th>Issue</th><th>BU</th><th>Owner</th><th>Operational Status</th><th>Age</th><th>Action</th></tr></thead>
-        <tbody>{queueRows.length ? queueRows.map((row: any) => <tr key={row.id}><td>{row.issue}</td><td>{row.bu}</td><td>{row.owner}</td><td><span className="status-token warning">{row.category}</span></td><td>{row.age}</td><td><button className="btn small" onClick={() => handleQueueRow(row)}>Open issue</button></td></tr>) : <tr><td colSpan={6} className="empty-cell">No records found for the selected filters.</td></tr>}</tbody>
+        <tbody>{queueRows.length ? queueRows.map((row) => <tr key={row.id}><td>{row.issue}</td><td>{row.bu}</td><td>{row.owner}</td><td><span className="status-token warning">{row.category} · {row.status}</span></td><td>{row.age}</td><td><button className="btn small" onClick={() => openReport(row.reportId)}>Open report</button></td></tr>) : <tr><td colSpan={6} className="empty-cell">{loadingFigures ? 'Loading report figures...' : 'No records found for the selected filters.'}</td></tr>}</tbody>
       </table>
     </section>
+
+    <KpiScorecard refreshToken={kpiRefresh} businessUnitFilter={buFilter} />
   </section>
 }
+// Alert text written by flows contains raw UTC timestamps (2026-09-23T14:14:57Z); show them in local time.
+function localizeTimestamps(value: string) {
+  return value.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})/g, (stamp) => formatDate(stamp))
+}
+
 // Alert descriptions arrive as one run-on string with embedded app links, e.g.
 // "Affected Service: Lab Outage Type: Partial ... https://apps.powerapps.com/...".
 // Drop the links and put each "Label: value" part on its own line.
@@ -1676,7 +1873,7 @@ function alertLines(description?: string) {
     const start = (hit.index ?? 0) + hit[0].length
     const end = hits[i + 1]?.index ?? text.length
     const value = text.slice(start, end).trim()
-    if (value) lines.push({ label: hit[1], value })
+    if (value) lines.push({ label: hit[1], value: localizeTimestamps(value) })
   })
   return lines
 }
@@ -1690,7 +1887,32 @@ const ALERT_LABELS = [
 
 // Open / Done switch at the top of the drawer: done alerts live in their own view (with Reopen)
 // instead of staying greyed out in the same list or sitting at the bottom.
-function AlertDrawer({ alerts, markAlertRead, markAlertUnread, openReport, close }: any) {
+// Business unit value of each linked report, read in batches (alerts only carry the report link).
+async function alertReportHospitals(reportIds: (string | undefined)[]): Promise<Record<string, string>> {
+  const ids = Array.from(new Set(reportIds.map((id) => cleanId(id).toLowerCase()).filter(Boolean)))
+  const hospitals: Record<string, string> = {}
+  for (let start = 0; start < ids.length; start += 15) {
+    const chunk = ids.slice(start, start + 15)
+    try {
+      const rows = list<any>(await Services.reports.getAll({ select: ['dma_handoverreportid', 'dma_businessunit'], filter: chunk.map((id) => `dma_handoverreportid eq ${id}`).join(' or ') } as any))
+      for (const row of rows) hospitals[cleanId(row.dma_handoverreportid).toLowerCase()] = String(row.dma_businessunit ?? '')
+    } catch (error) {
+      console.warn('Alert report hospitals could not be loaded', error)
+    }
+  }
+  return hospitals
+}
+
+function hospitalFromAlertText(description?: string) {
+  const line = alertLines(description).find((item) => item.label.toLowerCase() === 'business unit')
+  const label = line?.value.trim().split(/\s+/)[0]?.toUpperCase()
+  return businessUnits.find(([, name]) => name === label)?.[0] || ''
+}
+
+function AlertDrawer({ alerts: allAlerts, markAlertRead, markAlertUnread, openReport, close }: any) {
+  const [hospital, setHospital] = useState('all')
+  const alerts = hospital === 'all' ? allAlerts : allAlerts.filter((a: AlertRow) => String(a.businessUnit) === hospital)
+  const countFor = (value: string) => allAlerts.filter((a: AlertRow) => !a.isRead && (value === 'all' || String(a.businessUnit) === value)).length
   const open = alerts.filter((a: AlertRow) => !a.isRead)
   const done = alerts.filter((a: AlertRow) => a.isRead)
   const [view, setView] = useState<'open' | 'done'>('open')
@@ -1698,6 +1920,7 @@ function AlertDrawer({ alerts, markAlertRead, markAlertUnread, openReport, close
     <span className={`alert-dot ${a.isRead ? 'done' : a.severity}`}></span>
     <div className="alert-copy">
       <strong className={`alert-title ${a.severity}`}>{a.title}</strong>
+      {a.businessUnit && <span className="alert-hospital">{labelFor(businessUnits, a.businessUnit)}</span>}
       {alertLines(a.description).length > 0 && <dl className="alert-lines">{alertLines(a.description).map((line, index) => <div key={index}>{line.label && <dt>{line.label}</dt>}<dd>{line.value}</dd></div>)}</dl>}
       <small>{formatDate(a.createdOn)}</small>
       <div className="alert-row-actions">
@@ -1710,7 +1933,11 @@ function AlertDrawer({ alerts, markAlertRead, markAlertUnread, openReport, close
   </div>
   return <div className="drawer-backdrop" onClick={close}><aside className="alert-drawer" onClick={(event) => event.stopPropagation()}>
     <div className="alert-drawer-head"><div><span>Operations</span><h2>Duty Manager Alerts</h2><small>{open.length} open · {done.length} done</small></div><button className="icon-close" onClick={close} aria-label="Close alerts">x</button></div>
-    {alerts.length === 0 ? <Empty title="No alerts" text="Connected alert rows will appear here." /> : <>
+    <div className="alert-hospital-filter">
+      <PulseSelect ariaLabel="Filter alerts by hospital" value={hospital} onChange={setHospital}
+        options={[{ value: 'all', label: `All hospitals (${countFor('all')} open)` }, ...businessUnits.map(([value, label]) => ({ value, label: `${label} (${countFor(value)} open)` }))]} />
+    </div>
+    {alerts.length === 0 ? <Empty title="No alerts" text={hospital === 'all' ? 'Connected alert rows will appear here.' : `No alerts for ${labelFor(businessUnits, hospital)}.`} /> : <>
       <div className="alert-switch" role="tablist" aria-label="Alert status">
         <button type="button" role="tab" aria-selected={view === 'open'} className={view === 'open' ? 'active' : ''} onClick={() => setView('open')}>Open <b>{open.length}</b></button>
         <button type="button" role="tab" aria-selected={view === 'done'} className={view === 'done' ? 'active' : ''} onClick={() => setView('done')}>Done <b>{done.length}</b></button>
@@ -1724,15 +1951,6 @@ function AlertDrawer({ alerts, markAlertRead, markAlertUnread, openReport, close
   </aside></div>
 }
 function Editor({ state }: any) {
-  const tabs: [TabKey, string][] = [
-    ['general', 'General'],
-    ['events', 'Events'],
-    ['admin', 'Admin'],
-    ['flow', 'Patient Flow'],
-    ['ops', 'Operations'],
-    ['experience', 'Experience'],
-    ['summary', 'Summary'],
-  ]
   const active = state.tab
   const [showErrors, setShowErrors] = useState(false)
   // Every page except General stays locked until the previous handover is acknowledged.
@@ -1742,7 +1960,7 @@ function Editor({ state }: any) {
   const pageMissing = missing.filter((field) => missingFieldTab(field) === active)
   const pageInfo = reportTabs.find(([, , key]) => key === active)
   return <ValidationContext.Provider value={{ show: showErrors, missing }}><div className="editor-shell">
-    <nav className="nav-tabs">{tabs.map(([key, label]) => <button key={key} className={`${active === key ? 'active' : ''}${ackPending && key !== 'general' ? ' locked' : ''}`} title={ackPending && key !== 'general' ? 'Acknowledge the previous handover first' : undefined} onClick={() => state.setTab(key)}>{label}</button>)}</nav>
+    <ReportBar form={state.form} active={active} setTab={state.setTab} missing={missing} ackPending={ackPending} completionPercent={state.completionPercent} />
     {showErrors && active !== 'summary' && pageMissing.length > 0 && <div className="page-missing-banner" role="alert">
       <div>
         <strong>{pageMissing.length} required {pageMissing.length === 1 ? 'field is' : 'fields are'} missing on this page{pageInfo ? ` (${pageInfo[1]})` : ''}</strong>
@@ -1750,22 +1968,69 @@ function Editor({ state }: any) {
       </div>
       <button type="button" className="btn small" onClick={() => state.setTab('summary')}>Back to Summary</button>
     </div>}
-    {active === 'general' && <GeneralTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} duplicateDraft={state.duplicateDraft} openDraft={state.openDraft} previous={state.previous} />}
+    {active === 'general' && <GeneralTab adminCatalog={state.adminCatalog} events={state.events} damaEntries={state.damaEntries} earlyDischarges={state.earlyDischarges} form={state.form} updateForm={state.updateForm} reportId={state.reportId} searchUsers={state.searchUsers} userMatches={state.userMatches} setUserMatches={state.setUserMatches} openReport={state.openReport} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} setTab={state.setTab} duplicateDraft={state.duplicateDraft} openDraft={state.openDraft} previous={state.previous} />}
     {state.previous.failed && <div className="page-missing-banner ack-check-failed" role="alert"><div><strong>Couldn't check the previous handover</strong><p>Acknowledgment of the previous shift could not be verified, so this report is not locked. Retry before submitting.</p></div><button type="button" className="btn small" onClick={state.previous.retry}>Retry</button></div>}
     {locked && <AcknowledgeGate previous={state.previous} openReport={state.openReport} goGeneral={() => state.setTab('general')} />}
     {!locked && active === 'events' && <EventsTab businessUnit={state.form.businessUnit} events={state.events} setEvents={state.setEvents} eventTypes={state.eventTypes} eventCodes={state.eventCodes} loadEventCodes={state.loadEventCodes} />}
     {!locked && active === 'admin' && <AdminTab form={state.form} updateForm={state.updateForm} adminIssues={state.adminIssues} setAdminIssues={state.setAdminIssues} adminCatalog={state.adminCatalog} />}
-    {!locked && active === 'flow' && <FlowTab form={state.form} updateForm={state.updateForm} reportId={state.reportId} discharges={state.discharges} damaEntries={state.damaEntries} setDamaEntries={state.setDamaEntries} earlyDischarges={state.earlyDischarges} setEarlyDischarges={state.setEarlyDischarges} />}
-    {!locked && active === 'ops' && <OpsTab opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} />}
+    {!locked && active === 'flow' && <FlowTab autoCounts={state.autoCounts} refreshAutoCounts={state.refreshAutoCounts} form={state.form} updateForm={state.updateForm} reportId={state.reportId} discharges={state.discharges} damaEntries={state.damaEntries} setDamaEntries={state.setDamaEntries} earlyDischarges={state.earlyDischarges} setEarlyDischarges={state.setEarlyDischarges} />}
+    {!locked && active === 'ops' && <OpsTab businessUnit={state.form.businessUnit} opsIssues={state.opsIssues} setOpsIssues={state.setOpsIssues} />}
     {!locked && active === 'experience' && <ExperienceTab form={state.form} updateForm={state.updateForm} />}
     {!locked && active === 'summary' && <SummaryTab form={state.form} updateForm={state.updateForm} completion={state.completion} pendingItems={state.pendingItems} submitReport={state.submitReport} busy={state.busy} setTab={state.setTab} showErrors={showErrors} onSubmitAttempt={() => setShowErrors(true)} />}
   </div></ValidationContext.Provider>
 }
-function GeneralTab({ form, updateForm, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab, duplicateDraft, openDraft, previous }: any) {
+// Report bar: always shown inside a report, whether or not the sections menu is open. Says which handover is open
+// (business unit, shift, date, completion) and moves between its seven sections. Sections after General stay
+// locked until the previous handover is acknowledged; a count marks sections with required fields still missing.
+function ReportBar({ form, active, setTab, missing, ackPending, completionPercent }: {
+  form: FormState; active: TabKey; setTab: (tab: TabKey) => void; missing: string[]; ackPending: boolean; completionPercent: number
+}) {
+  // Where the steps scroll sideways (phones), keep the current one in view without moving the page.
+  const stepsRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const steps = stepsRef.current
+    const current = steps?.querySelector<HTMLElement>('.report-step.active')
+    if (!steps || !current || steps.scrollWidth <= steps.clientWidth) return
+    steps.scrollLeft = current.offsetLeft - (steps.clientWidth - current.offsetWidth) / 2
+  }, [active])
+  return <section className="report-bar" aria-label="Handover report">
+    <div className="report-bar-id">
+      <span className="report-bar-icon" aria-hidden="true"><NavIcon name="summary" /></span>
+      <div>
+        <small>Handover report</small>
+        <strong>{labelFor(businessUnits, form.businessUnit)} · {form.shift} shift · {shortDate(form.reportDate)}</strong>
+      </div>
+    </div>
+    <nav ref={stepsRef} className="report-steps" aria-label="Report sections">
+      {reportLinks.map(([key, , label, text], index) => {
+        const locked = ackPending && key !== 'general'
+        const missingHere = missing.filter((field) => missingFieldTab(field) === key).length
+        return <button type="button" key={key} className={`report-step${active === key ? ' active' : ''}${locked ? ' locked' : ''}`}
+          onClick={() => setTab(key)} aria-current={active === key ? 'step' : undefined}
+          aria-label={`${index + 1}. ${label}${locked ? ' (locked until the previous handover is acknowledged)' : missingHere ? ` (${missingHere} required missing)` : ''}`}
+          title={locked ? 'Acknowledge the previous handover first' : label}>
+          <span className="report-step-pill"><span className="report-step-num">{index + 1}</span><span className="report-step-label">{text}</span>{!locked && missingHere > 0 && <b className="report-step-missing">{missingHere}</b>}</span>
+        </button>
+      })}
+    </nav>
+    <div className="report-bar-progress" title="Required fields completed">
+      <span><b>{completionPercent}%</b> complete</span>
+      <i aria-hidden="true"><em style={{ width: `${completionPercent}%` }} /></i>
+    </div>
+  </section>
+}
+
+function GeneralTab({ adminCatalog = [], events = [], damaEntries = [], earlyDischarges = [], form, updateForm, searchUsers, userMatches, setUserMatches, openReport, adminIssues, setAdminIssues, opsIssues, setOpsIssues, setTab, duplicateDraft, openDraft, previous }: any) {
   // Previous same-BU handover state lives in DutyManager so every report page can require its acknowledgment.
   const { report: previousReport, carryItems, loading: previousLoading, message: previousMessage, acknowledge: acknowledgePrevious } = previous as PreviousHandover
   const previousAcknowledged = Boolean(previousReport?.dma_dmacknowledgmenttimestamp)
+  const noPreviousReport = !previousLoading && !previousReport
+  // Records in a report belong to its hospital, so the business unit is fixed once any have been added.
+  const recordCount = events.length + adminIssues.length + opsIssues.length + damaEntries.length + earlyDischarges.length
+  const businessUnitLocked = recordCount > 0
   const [reportDatePart = '', reportTimePart = ''] = String(form.reportDate || '').split('T')
+  const reportTime = form.reportDate ? new Date(form.reportDate) : null
+  const timeShift = reportTime && !Number.isNaN(reportTime.getTime()) ? shiftForDate(reportTime) : null
   function updateMobileReportDate(nextDate: string, nextTime: string) {
     updateForm({ reportDate: `${nextDate || reportDatePart}T${nextTime || reportTimePart || '00:00'}` })
   }
@@ -1778,8 +2043,9 @@ function GeneralTab({ form, updateForm, searchUsers, userMatches, setUserMatches
       if (adminIssues.some((issue: AdminIssue) => issue.id === item.targetId)) return
       setAdminIssues([...adminIssues, {
         id: item.targetId,
-        catId: '',
+        catId: catalogIdFor(adminCatalog, item.catId || '', item.title),
         catLabel: item.title,
+        area: item.area, pId: item.pId, pName: item.pName || '', pCode: item.pCode || '', pCodeSource: item.pCodeSource,
         status: String(item.status || '778000000') as Resolution,
         desc: item.description,
         action: item.action || '',
@@ -1822,18 +2088,27 @@ function GeneralTab({ form, updateForm, searchUsers, userMatches, setUserMatches
       <div className="identity-card-head"><span>Shift identity</span></div>
       <div className="identity-fields">
         <Field label="Duty Manager" required="Duty Manager"><div className="lookup-wrap"><input value={form.dmName} onChange={(e) => searchUsers(e.target.value)} onBlur={() => setTimeout(() => setUserMatches([]), 150)} />{userMatches.length > 0 && <div className="lookup-results">{userMatches.map((u: any) => <button className="lookup-item" key={u.systemuserid} onClick={() => { updateForm({ dmName: u.fullname, dmUserId: u.systemuserid }); setUserMatches([]) }}>{u.fullname}</button>)}</div>}</div></Field>
-        <SelectField label="Business Unit" required="Business Unit" value={form.businessUnit} options={businessUnits} onChange={(businessUnit: string) => updateForm({ businessUnit })} />
+{businessUnitLocked
+          ? <Field label="Business Unit"><input className="auto-filled-input" value={labelFor(businessUnits, form.businessUnit)} readOnly aria-readonly="true" title="This report already has records for this hospital. Start a new report to report on another hospital." /></Field>
+          : <SelectField label="Business Unit" required="Business Unit" value={form.businessUnit} options={businessUnits} onChange={(businessUnit: string) => updateForm({ businessUnit })} />}
         <div className="report-date-fields"><Field label="Report Date" required="Report Date"><PulseDatePicker ariaLabel="Report date" value={reportDatePart} onChange={(date) => updateMobileReportDate(date, reportTimePart)} /></Field><Field label="Report Time"><input type="time" value={reportTimePart.slice(0, 5)} onChange={(e) => updateMobileReportDate(reportDatePart, e.target.value)} /></Field></div>
         <Field label="Shift" required="Shift"><PulseSelect ariaLabel="Shift" value={form.shift} onChange={(shift) => updateForm({ shift: shift as Shift })} options={['Morning', 'Evening', 'Night'].map((shift) => ({ value: shift, label: shift }))} /></Field>
       </div>
     </section>
+    {timeShift && timeShift !== form.shift && <div className="page-missing-banner shift-mismatch-banner" role="status">
+      <div>
+        <strong>Report time is outside the {form.shift} shift</strong>
+        <p>{shortTime(form.reportDate)} falls in the {timeShift} shift ({shiftWindows[timeShift]}). The {form.shift} shift runs {shiftWindows[form.shift as Shift]}. Check the shift or the report time.</p>
+      </div>
+      <button type="button" className="btn small" onClick={() => updateForm({ shift: timeShift })}>Use {timeShift}</button>
+    </div>}
     <div className="page-section-title"><h2>Incoming responsibility</h2><p>Context carried from the previous Duty Manager.</p></div>
     <section className="takeover-grid">
       <div className="carry-register">
         <div className="carry-ack previous-handover-row">
           <div>
             <h3>{previousReport?.dma_name || 'Previous handover'}</h3>
-            <p>{previousLoading ? 'Retrieving the latest submitted handover from the same business unit...' : previousReport ? `${labelFor(businessUnits, previousReport.dma_businessunit)} - ${shiftFromValue(previousReport.dma_shifttype)} - ${formatDate(previousReport.dma_reportdate)}${previousMessage ? ` - ${previousMessage}` : ''}` : previousMessage || 'No previous handover found for this business unit.'}</p>
+            <p>{previousLoading ? 'Retrieving the latest submitted handover from the same business unit...' : previousReport ? `${labelFor(businessUnits, previousReport.dma_businessunit)} - ${shiftFromValue(previousReport.dma_shifttype)} - ${formatDate(previousReport.dma_reportdate)}${previousGapDays(previousReport, form) ? ` - last submitted handover is ${previousGapDays(previousReport, form)} days older than this report` : ''}${previousMessage ? ` - ${previousMessage}` : ''}` : previousMessage || 'No previous handover found for this business unit.'}</p>
           </div>
           <span className={`status-token ${previousAcknowledged ? 'ok' : previousReport ? 'warning' : 'info'}`}>{previousAcknowledged ? 'Acknowledged' : previousReport ? 'Needs acknowledgment' : 'No report'}</span>
           <div className="carry-actions">
@@ -1844,19 +2119,43 @@ function GeneralTab({ form, updateForm, searchUsers, userMatches, setUserMatches
         <div className="carry-label">Carried forward responsibilities</div>
         {previousLoading ? <div className="carry-row"><div><h3>Loading carried responsibilities</h3><p>Checking unresolved issues from the previous same-BU handover.</p></div><span className="status-token info">Loading</span><div><strong>Previous shift</strong><small>Source</small></div><button className="btn" disabled>Loading</button></div> : carryItems.length === 0 ? <div className="carry-row"><div><h3>No carried responsibilities found</h3><p>No unresolved administrative or operations issues were found on the previous same-BU handover.</p></div><span className="status-token ok">Clear</span><div><strong>Previous shift</strong><small>Source</small></div></div> : carryItems.map((item) => <div className="carry-row" key={item.id}><div><h3>{item.title}</h3><p>{item.description || item.pending || 'No details recorded.'}</p></div><span className="status-token warning">{item.kind === 'admin' ? 'Administrative' : 'Operations'}</span><div><strong>{item.age}</strong><small>{labelFor(resolutionOptions, item.status)}</small></div><button className="btn" disabled={carriedAlready(item)} onClick={() => carryForward(item)}>{carriedAlready(item) ? 'Carried' : 'Carry over'}</button></div>)}
       </div>
-      <aside className="takeover-state"><div className="eyebrow">Takeover state</div><h2>{previousAcknowledged ? 'Responsibility accepted' : 'Acknowledgment pending'}</h2><p>{previousAcknowledged ? 'Previous-shift context has been acknowledged. Carried items remain visible for ownership.' : 'Review and acknowledge the previous same-BU handover before responsibility transfer.'}</p><div className="takeover-check"><span>Reporting context</span><b>Complete</b></div><div className={previousAcknowledged ? 'takeover-check' : 'takeover-check warn'}><span>Previous handover</span><b>{previousAcknowledged ? 'Acknowledged' : previousReport ? 'Required' : 'Not found'}</b></div><div className={carryItems.length ? 'takeover-check warn' : 'takeover-check'}><span>Carried responsibility</span><b>{carryItems.length ? `${carryItems.length} item${carryItems.length === 1 ? '' : 's'}` : 'Clear'}</b></div></aside>
+      <aside className="takeover-state"><div className="eyebrow">Takeover state</div><h2>{previousAcknowledged ? 'Responsibility accepted' : noPreviousReport ? 'No acknowledgment needed' : previousLoading ? 'Checking previous handover' : 'Acknowledgment pending'}</h2><p>{previousAcknowledged ? 'Previous-shift context has been acknowledged. Carried items remain visible for ownership.' : noPreviousReport ? 'No earlier submitted handover exists for this business unit, so there is nothing to acknowledge.' : 'Review and acknowledge the previous same-BU handover before responsibility transfer.'}</p><div className="takeover-check"><span>Reporting context</span><b>Complete</b></div><div className={previousAcknowledged || noPreviousReport ? 'takeover-check' : 'takeover-check warn'}><span>Previous handover</span><b>{previousAcknowledged ? 'Acknowledged' : previousReport ? 'Required' : 'Not found'}</b></div><div className={carryItems.length ? 'takeover-check warn' : 'takeover-check'}><span>Carried responsibility</span><b>{carryItems.length ? `${carryItems.length} item${carryItems.length === 1 ? '' : 's'}` : 'Clear'}</b></div></aside>
     </section>
   </main>
+}
+
+// Whole days between the previous handover and this report, when more than one day apart.
+// Catalog row id for an issue saved without one: the issue name is the category label.
+function catalogIdFor(catalog: [string, string][], catId: string, label: string) {
+  if (catId) return catId
+  const wanted = String(label || '').trim().toLowerCase()
+  return catalog.find(([, name]) => String(name).trim().toLowerCase() === wanted)?.[0] || ''
+}
+
+// An item carried from another hospital's report (possible in drafts made before hospitals were fixed per report).
+function OtherHospitalNote({ carrySource, businessUnit }: { carrySource?: string; businessUnit: string }) {
+  const hospital = labelFor(businessUnits, businessUnit)
+  if (!carrySource || !hospital || carrySource.startsWith(`${hospital} `)) return null
+  return <div className="other-hospital-note" role="alert">Carried from another hospital ({carrySource}). It does not belong to this {hospital} report; delete it here.</div>
+}
+
+function previousGapDays(previous: any, form: FormState) {
+  const from = new Date(previous?.dma_reportdate || previous?.createdon || '').getTime()
+  const to = new Date(form.reportDate).getTime()
+  if (Number.isNaN(from) || Number.isNaN(to)) return 0
+  const days = Math.floor((to - from) / 86400000)
+  return days > 1 ? days : 0
 }
 
 function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, loadEventCodes }: any) {
   const isMissing = useMissingItem()
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState<EventItem>({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
+  const [draft, setDraft] = useState<EventItem>({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
   const validation = useSaveErrors((d: EventItem) => {
     const e: Record<string, string> = {}
     if (!d.typeId) e.typeId = 'Select the critical event type.'
     if (!d.codeId) e.codeId = d.typeId ? 'Select the specific code.' : 'Select an event type first, then the code.'
+    if (!d.severity) e.severity = 'Select the severity level.'
     if (!d.area) e.area = REQUIRED
     if (!d.pId || !d.pName) e.patient = 'Search and select the patient.'
     if (!d.desc.trim()) e.desc = 'Describe the incident.'
@@ -1865,7 +2164,7 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
   }, draft)
   const errors = validation.errors
   const areaOptions = eventAreaOptions(draft.typeText, businessUnit)
-  const reset = () => setDraft({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '778000001', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
+  const reset = () => setDraft({ id: '', typeId: '', typeText: '', codeId: '', codeText: '', severity: '', desc: '', actions: '', area: patientAreaOptions(businessUnit)[0][0], pName: '', pCode: '', pId: '' })
   useEffect(() => {
     setDraft((current) => {
       const allowed = eventAreaOptions(current.typeText, businessUnit)
@@ -1887,7 +2186,8 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
   }
   function save() {
     if (!validation.check()) return
-    const item = { ...draft, id: draft.id || `event-${Date.now()}`, typeText: draft.typeText || 'Event', codeText: draft.codeText || 'Code', pCode: draft.pCode || '' }
+    // The event keeps the time it was first entered; edits don't change it.
+    const item = { ...draft, id: draft.id || `event-${Date.now()}`, loggedAt: draft.loggedAt || new Date().toISOString(), typeText: draft.typeText || 'Event', codeText: draft.codeText || 'Code', pCode: draft.pCode || '' }
     setEvents(draft.id ? events.map((event: EventItem) => event.id === draft.id ? item : event) : [...events, item])
     closeModal()
   }
@@ -1908,12 +2208,12 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
       <div className="grid report-grid two">
         <Field label="Critical Event Type *" error={errors.typeId}><PulseSelect ariaLabel="Critical event type" placeholder="Select" value={draft.typeId} onChange={changeType} options={eventTypes.map((x: any) => ({ value: x.dma_eventtypeid, label: x.dma_name }))} /></Field>
         <Field label="Specific Code *" error={errors.codeId}><PulseSelect ariaLabel="Specific code" placeholder={draft.typeId ? 'Select' : 'Select event type first'} disabled={!draft.typeId} title={!draft.typeId ? 'Select a Critical Event Type first' : 'Select the specific event code'} value={draft.codeId} onChange={(codeId) => { const c = eventCodes.find((x: any) => x.dma_eventcodeid === codeId); setDraft({ ...draft, codeId, codeText: c?.dma_name || '' }) }} options={eventCodes.map((x: any) => ({ value: x.dma_eventcodeid, label: x.dma_name }))} /></Field>
-        <SeverityBubbles value={draft.severity} onChange={(severity: Severity) => setDraft({ ...draft, severity })} />
+        <SeverityBubbles value={draft.severity} error={errors.severity} onChange={(severity: Severity) => setDraft({ ...draft, severity })} />
         <Field label="Context (Area) *" error={errors.area}><PulseSelect ariaLabel="Context area" value={draft.area || areaOptions[0][0]} onChange={(area) => setDraft({ ...draft, area: area as PatientArea, pName: '', pCode: '', pId: '' })} options={areaOptions.map(([value, label]) => ({ value, label }))} /></Field>
       </div>
       <div className="grid report-grid two">
-        <PatientLookup key={draft.area || areaOptions[0][0]} area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} />
-        <Field label="Patient Code"><input className="auto-filled-input" value={draft.pCode || ''} readOnly aria-readonly="true" tabIndex={-1} placeholder="Auto-filled from patient search" /></Field>
+        <PatientLookup key={draft.area || areaOptions[0][0]} businessUnit={businessUnit} area={(draft.area || areaOptions[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={patientDisplay(draft.pName, draft.pCode, draft.pCodeSource)} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pCodeSource: p.codeSource, pId: p.id })} />
+        <Field label="Patient Code"><input className="auto-filled-input" value={patientCodeText(draft.pCode, draft.pCodeSource)} title={draft.pCodeSource === 'id' ? 'This patient has no patient code; the patient ID is shown instead.' : undefined} readOnly aria-readonly="true" tabIndex={-1} placeholder="Auto-filled from patient search" /></Field>
       </div>
       <Field label="Incident Description *" error={errors.desc}><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} placeholder="Details of the event..." /></Field>
       <Field label="Immediate Actions Taken *" error={errors.actions}><TextArea value={draft.actions} onChange={(e) => setDraft({ ...draft, actions: e.target.value })} placeholder="Steps taken to mitigate issue..." /></Field>
@@ -1923,10 +2223,10 @@ function EventsTab({ businessUnit, events, setEvents, eventTypes, eventCodes, lo
     <div className="page-section-title"><h2>Clinical event timeline</h2><p>Chronological event record for this shift.</p></div>
     {events.length > 0 && <TimelineFilters label="Filter events by severity" options={severityFilters} value={severityFilter} onChange={setSeverityFilter} />}
     <section className="event-timeline">{events.length === 0 ? <Empty title="No hospital events recorded" text="Clinical events logged during this shift will appear in the timeline." /> : visibleEvents === 0 ? <Empty title="No events at this severity" text="Choose another filter to see the rest of the timeline." /> : events.map((e: EventItem, index: number) => (severityFilter === 'all' || e.severity === severityFilter) && <article className={`timeline-row pulse-row${isMissing(`Event ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Event ${index + 1}`} key={e.id}>
-      <time>{shortTime(new Date().toISOString()) || `0${index}:00`}</time>
+      <time title={e.loggedAt ? formatDate(e.loggedAt) : undefined}>{shortTime(e.loggedAt) || '--:--'}</time>
       <span className={`timeline-dot ${severityClass(e.severity)}`} title={labelFor(severityOptions, e.severity)} />
       <div className="tl-body">
-        <h3 className="tl-title">{patientLine(e.pName, e.pCode, e.area) || `${e.typeText} - ${e.codeText}`}</h3>
+        <h3 className="tl-title">{patientLine(e.pName, e.pCode, e.area, e.pCodeSource) || `${e.typeText} - ${e.codeText}`}</h3>
         {e.pName && <div className="tl-sub">{e.typeText} - {e.codeText}</div>}
         <p className="tl-desc">{e.desc}</p>
         <TimelineField title="Action" text={e.actions} />
@@ -1957,7 +2257,7 @@ function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog 
     setDraft((current) => adminAreas.some(([area]) => area === current.area) ? current : { ...current, area: adminAreas[0][0], pName: '', pCode: '', pId: '' })
   }, [form.businessUnit])
   function resetAdminDraft() { setDraft({ id: '', catId: '', catLabel: '', status: '778000000', desc: '', action: '', pendingDetails: '', area: adminAreas[0][0], pName: '', pCode: '', pId: '' }) }
-  function editAdminIssue(issue: AdminIssue) { setDraft({ ...issue }); setAdding(true) }
+  function editAdminIssue(issue: AdminIssue) { setDraft({ ...issue, catId: catalogIdFor(adminCatalog, issue.catId, issue.catLabel) }); setAdding(true) }
   function closeAdminModal() { resetAdminDraft(); validation.reset(); setAdding(false) }
   function save() {
     if (!validation.check()) return
@@ -1969,14 +2269,15 @@ function AdminTab({ form, updateForm, adminIssues, setAdminIssues, adminCatalog 
   return <main className="workflow-page admin-page"><PageTitle step="03" eyebrow="Operational Constraints" title="Administrative issues" subtitle="Delayed discharges, prolonged ER admissions and issue ownership." action={<button className="btn primary" onClick={() => setAdding(true)}>Log administrative issue</button>} />
     <section className="admin-metrics"><div><small>Current load</small><b>{adminIssues.length}<span>Open issues</span></b><p>active this shift</p></div><div><small>Operational pressure</small><div className="metric-cluster"><b>{delayed}<span>Delayed discharges</span></b><b>{prolonged}<span>Prolonged ER</span></b><b>{Math.max(0, adminIssues.length - delayed - prolonged)}<span>Other blockers</span></b></div></div><div><small>Duty Manager attention</small><b>{adminIssues.filter((i: AdminIssue) => i.status !== '778000001').length} actions due</b><p>Requires intervention before handover</p></div></section>
     <div className="inline-edit-fields"><Field label="Delayed discharge narrative"><TextArea value={form.delayedDischargesNarrative} onChange={(e) => updateForm({ delayedDischargesNarrative: e.target.value })} /></Field><Field label="Prolonged ER narrative"><TextArea value={form.prolongedERNarrative} onChange={(e) => updateForm({ prolongedERNarrative: e.target.value })} /></Field></div>
-    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" error={errors.catId} value={draft.catId} options={adminCatalog} placeholder="Select" onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" error={errors.status} value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /><SelectField label="Patient Area *" error={errors.area} value={draft.area || adminAreas[0][0]} options={adminAreas} onChange={(area: PatientArea) => setDraft({ ...draft, area, pName: '', pCode: '', pId: '' })} /><PatientLookup key={draft.area || adminAreas[0][0]} area={(draft.area || adminAreas[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={draft.pName ? `${draft.pName}${draft.pCode ? ` (${draft.pCode})` : ''}` : ''} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pId: p.id })} /></div><Field label="Description"><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><TextArea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *" error={errors.pendingDetails}><TextArea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
+    {adding && <ModalShell title={draft.id ? 'Edit Administrative Issue' : 'Add Administrative Issue'} tone="admin" onClose={closeAdminModal}><div className="grid report-grid two"><SelectField label="Issue Category *" error={errors.catId} value={draft.catId} options={adminCatalog} placeholder="Select" onChange={(catId: string) => setDraft({ ...draft, catId })} /><SelectField label="Resolution Status *" error={errors.status} value={draft.status} options={resolutionOptions} onChange={(status: Resolution) => setDraft({ ...draft, status })} /><SelectField label="Patient Area *" error={errors.area} value={draft.area || adminAreas[0][0]} options={adminAreas} onChange={(area: PatientArea) => setDraft({ ...draft, area, pName: '', pCode: '', pId: '' })} /><PatientLookup key={draft.area || adminAreas[0][0]} businessUnit={form.businessUnit} area={(draft.area || adminAreas[0][0]) as PatientArea} label="Patient Search *" error={errors.patient} value={patientDisplay(draft.pName, draft.pCode, draft.pCodeSource)} onSelect={(p) => setDraft({ ...draft, area: p.area, pName: p.name, pCode: p.code, pCodeSource: p.codeSource, pId: p.id })} /></div><Field label="Description"><TextArea value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} /></Field><Field label="Action Taken"><TextArea value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value })} /></Field>{draft.status !== '778000001' && <Field label="Summary / Pending Details *" error={errors.pendingDetails}><TextArea value={draft.pendingDetails} onChange={(e) => setDraft({ ...draft, pendingDetails: e.target.value })} placeholder="Overall summary or pending action plan..." /></Field>}<div className="modal-actions"><button className="btn" onClick={closeAdminModal}>Cancel</button><button className="btn primary" onClick={save}>{draft.id ? 'Save Issue' : 'Add Issue'}</button></div></ModalShell>}
     <div className="movement-head admin-timeline-head"><div><h2>Administrative issue timeline</h2></div><p>Current-shift constraints, ownership and follow-up.</p></div>
     {adminIssues.length > 0 && <TimelineFilters label="Filter administrative issues by status" options={statusFilters(adminIssues.map((i: AdminIssue) => i.status))} value={statusFilter} onChange={setStatusFilter} />}
     <section className="event-timeline admin-timeline">{adminIssues.length === 0 ? <Empty title="No administrative issues recorded" text="Administrative constraints logged during this shift will appear here." /> : !adminIssues.some((i: AdminIssue) => statusFilter === 'all' || String(i.status) === statusFilter) ? <Empty title="No issues with this status" text="Choose another filter to see the rest of the timeline." /> : adminIssues.map((i: AdminIssue, index: number) => (statusFilter === 'all' || String(i.status) === statusFilter) && <article className={`timeline-row admin-timeline-row pulse-row${isMissing(`Admin Issue ${index + 1}`) ? ' has-missing' : ''}`} data-missing-item={`Admin Issue ${index + 1}`} key={i.id}>
       <time>{String(index + 1).padStart(2, '0')}</time>
       <span className={`timeline-dot ${i.status === '778000001' ? 'low' : 'warning'}`} title={labelFor(resolutionOptions, i.status)} />
       <div className="tl-body">
-        <h3 className="tl-title">{patientLine(i.pName, i.pCode, i.area) || i.catLabel}</h3>
+        <h3 className="tl-title">{patientLine(i.pName, i.pCode, i.area, i.pCodeSource) || i.catLabel}</h3>
+        <OtherHospitalNote carrySource={i.carrySource} businessUnit={form.businessUnit} />
         {i.pName && <div className="tl-sub">{i.catLabel}</div>}
         <p className="tl-desc">{i.desc || 'No description entered.'}</p>
         <TimelineField title="Action" text={i.action} />
@@ -1995,7 +2296,7 @@ function damaSummaryFromEntries(entries: DamaEntry[]): Partial<FormState> {
   }
 }
 
-function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaEntries, earlyDischarges, setEarlyDischarges }: any) {
+function FlowTab({ autoCounts, refreshAutoCounts, form, updateForm, discharges, damaEntries, setDamaEntries, earlyDischarges, setEarlyDischarges }: any) {
   const isMissing = useMissingItem()
   const validation = useContext(ValidationContext)
   const staffMissing = validation.show && ['Staff Coverage', 'Coverage Shortage', 'Shortfall Summary'].some((field) => validation.missing.includes(field))
@@ -2005,8 +2306,6 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
   const [addingEarlyDischarge, setAddingEarlyDischarge] = useState(false)
   const [earlyDischargeMasterId, setEarlyDischargeMasterId] = useState('')
   const [nightFlowStatus, setNightFlowStatus] = useState('')
-  const [refreshingFlow, setRefreshingFlow] = useState(false)
-  const [flowRefreshStatus, setFlowRefreshStatus] = useState('')
   function saveEntry(type: DamaEntry['damaType']) {
     if (!entry.pId || !entry.patientName) return
     const item: DamaEntry = { ...entry, damaType: type, id: entry.id || `dama-${Date.now()}`, actionTaken: entry.retained ? 'Retained' : 'Not retained' }
@@ -2023,7 +2322,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     if (form.shift !== 'Night') return
     if (showStatus) setNightFlowStatus('Refreshing tomorrow discharge plan...')
     try {
-      const synced = await syncEarlyDischargesViaXrm(form.reportDate)
+      const synced = await syncEarlyDischarges(form.reportDate)
       setEarlyDischargeMasterId(synced.masterId)
       if (synced.rows.length || synced.masterId) {
         setEarlyRows(synced.rows)
@@ -2048,7 +2347,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     try {
       let masterId = earlyDischargeMasterId
       if (!masterId) {
-        const synced = await syncEarlyDischargesViaXrm(form.reportDate)
+        const synced = await syncEarlyDischarges(form.reportDate)
         masterId = synced.masterId
         setEarlyDischargeMasterId(masterId)
         if (synced.rows.length) setEarlyRows(synced.rows)
@@ -2058,7 +2357,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
         return
       }
       const dischargeType: EarlyDischarge['type'] = draft.type
-      const row = await createEarlyDischargeViaXrm(masterId, { type: dischargeType, patientCode: draft.patientCode, reason: draft.reason })
+      const row = await createEarlyDischarge(masterId, { type: dischargeType, patientCode: draft.patientCode, reason: draft.reason })
       const rows = [...earlyDischarges, row]
       setEarlyRows(rows)
       await triggerEarlyDischargeRollup(masterId)
@@ -2075,7 +2374,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
     setEarlyRows(rows)
     if (!row.id.startsWith('local-')) {
       try {
-        await deleteEarlyDischargeViaXrm(row.id)
+        await deleteEarlyDischargeRow(row.id)
         if (earlyDischargeMasterId) await triggerEarlyDischargeRollup(earlyDischargeMasterId)
         setNightFlowStatus('Patient removed from tomorrow discharge plan.')
       } catch (error) {
@@ -2084,27 +2383,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
       }
     }
   }
-  async function refreshAutoCounts(showStatus = true) {
-    if (!reportId || String(reportId).startsWith('local-')) return
-    if (showStatus) {
-      setRefreshingFlow(true)
-      setFlowRefreshStatus('Refreshing census...')
-    }
-    try {
-      const patch = await retrievePatientFlowSummary(reportId)
-      if (Object.keys(patch).length) updateForm(patch)
-      if (showStatus) setFlowRefreshStatus(Object.keys(patch).length ? 'Patient flow refreshed from Dataverse.' : 'No linked patient-flow summary was found.')
-    } catch (error) {
-      console.warn('Could not refresh patient flow counts', error)
-      if (showStatus) setFlowRefreshStatus('Could not refresh auto-counts.')
-    } finally {
-      if (showStatus) setRefreshingFlow(false)
-    }
-  }
-  useEffect(() => {
-    if (!reportId || String(reportId).startsWith('local-')) return
-    refreshAutoCounts(false)
-  }, [reportId, form.reportDate, form.shift])
+
   useEffect(() => {
     if (form.shift !== 'Night') return
     syncNightEarlyDischarges(false)
@@ -2122,7 +2401,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
   const retentionTotal = damaCounts.reduce((sum, item) => sum + item.retained, 0)
   const flowStatus = form.staffAdequacy === '778000000' ? 'Pressure' : 'Stable'
   return <main className="workflow-page flow-page">
-    <PageTitle step="04" eyebrow="Patient Flow" title="Patient flow" subtitle="Live census, movement, theatre flow and retention signals for the current shift." action={<div className="flow-title-actions"><button className="btn" onClick={() => refreshAutoCounts()} disabled={refreshingFlow}>{refreshingFlow ? 'Refreshing...' : 'Refresh counts'}</button><button className="btn primary" onClick={() => setEditingFlow(true)}>Update patient flow</button></div>} />
+    <PageTitle step="04" eyebrow="Patient Flow" title="Patient flow" subtitle="Live census, movement, theatre flow and retention signals for the current shift." action={<div className="flow-title-actions"><button className="btn" onClick={() => refreshAutoCounts(true)} disabled={autoCounts.status === 'checking'}>{autoCounts.status === 'checking' ? 'Refreshing...' : 'Refresh counts'}</button><button className="btn primary" onClick={() => setEditingFlow(true)}>Update patient flow</button></div>} />
     <section className="flow-status-strip">
       <div className={`flow-status-cell${staffMissing ? ' has-missing' : ''}`} data-missing-item="Staff">
         <small>Flow status</small>
@@ -2154,7 +2433,7 @@ function FlowTab({ form, updateForm, reportId, discharges, damaEntries, setDamaE
         <p>{retentionTotal ? 'Retention cases require active ownership.' : 'No retention cases recorded this shift.'}</p>
       </div>
     </section>
-    {flowRefreshStatus && <div className="flow-refresh-note">{flowRefreshStatus}</div>}
+    <div className="flow-refresh-note" role="status">{autoCountsMessage(autoCounts)}</div>
     <div className="movement-head"><div><h2>Today's movement</h2></div><p>Throughput and exceptions requiring operational awareness.</p></div>
     <div className="flow-work-grid">
       <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
@@ -2234,6 +2513,7 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
       <div className="flow-popup-section">Staff coverage</div>
       <div className="flow-popup-grid single">
         <label className="flow-popup-field"><span>Staff coverage</span><PulseSelect ariaLabel="Staff coverage" value={form.staffAdequacy} onChange={(staffAdequacy) => updateForm({ staffAdequacy })} options={staffOptions.map(([value, label]) => ({ value, label }))} /></label>
+        {form.staffAdequacy !== '778000000' && <p className="flow-popup-hint"><b>Adequate</b> is filled in by default. If the shift is understaffed, change it to <b>Short</b> and add the shortage type and its impact.</p>}
       </div>
       {form.staffAdequacy === '778000000' && <div className="flow-shortage-panel">
         <div className={`flow-popup-field${errors.shortage ? ' has-error' : ''}`}><span>Coverage shortage <span className="req-mark" aria-hidden="true">*</span></span><div className="bubble-row">{shortageOptions.map(([value, label]) => <button type="button" key={value} className={`shortage-bubble ${form.shortageTypes?.includes(value) ? 'active' : ''}`} onClick={() => toggleShortage(value)}>{label}</button>)}</div><FieldError message={errors.shortage} /></div>
@@ -2249,7 +2529,7 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
       <div className="flow-popup-grid">
         <FlowNumber label="Planned discharges" value={form.plannedDischarges} readOnly onChange={() => undefined} />
         <FlowNumber label="Unplanned discharges" value={form.unplannedDischarges} onChange={(unplannedDischarges) => updateForm({ unplannedDischarges })} />
-        <FlowNumber label="Total discharges" value={discharges} readOnly onChange={() => undefined} />
+        <FlowNumber label="Total discharges (planned + unplanned)" value={discharges} readOnly onChange={() => undefined} />
       </div>
       <div className="flow-popup-section">Theatre flow</div>
       <div className="flow-popup-grid">
@@ -2259,18 +2539,8 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
         <FlowNumber label="Postponed" value={form.postponedORCases} onChange={(postponedORCases) => updateForm({ postponedORCases })} />
         <FlowNumber label="Cancelled" value={form.cancelledORCases} onChange={(cancelledORCases) => updateForm({ cancelledORCases })} />
       </div>
-      {form.shift === 'Night' && <>
-        <div className="flow-popup-section">Unit utilization</div>
-        <div className="flow-popup-grid">
-          <FlowNumber label="Ward utilization" value={form.inpUtilization} onChange={(inpUtilization) => updateForm({ inpUtilization })} />
-          <FlowNumber label="ICU utilization" value={form.icuUtilization} onChange={(icuUtilization) => updateForm({ icuUtilization })} />
-          <FlowNumber label="CCU utilization" value={form.ccuUtilization} onChange={(ccuUtilization) => updateForm({ ccuUtilization })} />
-          <FlowNumber label="PICU utilization" value={form.picuUtilization} onChange={(picuUtilization) => updateForm({ picuUtilization })} />
-          <FlowNumber label="NICU utilization" value={form.nicuUtilization} onChange={(nicuUtilization) => updateForm({ nicuUtilization })} />
-          <FlowNumber label="CPU utilization" value={form.cxUtilization} onChange={(cxUtilization) => updateForm({ cxUtilization })} />
-          <FlowNumber label="Stroke utilization" value={form.strokeUtilization} onChange={(strokeUtilization) => updateForm({ strokeUtilization })} />
-        </div>
-      </>}
+      {theatreWarning(form) && <p className="flow-popup-warning" role="status">{theatreWarning(form)}</p>}
+      {form.shift === 'Night' && <UtilizationInputs form={form} updateForm={updateForm} />}
       </div>
       <div className="flow-popup-actions">
         <button className="btn" onClick={close}>Cancel</button>
@@ -2278,6 +2548,24 @@ function FlowUpdateModal({ form, updateForm, discharges, close }: any) {
       </div>
     </div>
   </div>
+}
+
+function autoCountsMessage(autoCounts: AutoCountsState) {
+  const checked = autoCounts.checkedAt ? ` Checked ${shortTime(autoCounts.checkedAt)}; checked again every 5 minutes.` : ''
+  if (autoCounts.status === 'checking') return 'Checking Dataverse for the latest automatic counts...'
+  if (autoCounts.status === 'ready') return `Automatic counts are up to date with Dataverse.${checked}`
+  if (autoCounts.status === 'empty') return `Automatic admission and discharge counts have not been filled for this shift yet, so they show 0. The dataflow updates them every 30 minutes.${checked}`
+  if (autoCounts.status === 'missing') return 'No patient-flow summary is linked to this report.'
+  if (autoCounts.status === 'error') return `Automatic counts could not be refreshed. They will be tried again shortly.${checked}`
+  return 'Loading automatic counts...'
+}
+
+// Pre-op + post-op cases, and postponed + cancelled cases, cannot exceed the total OR cases.
+function theatreWarning(form: FormState) {
+  const total = form.totalORCases
+  if (form.preoperative + form.postoperative > total) return `Pre-op (${form.preoperative}) and post-op (${form.postoperative}) add up to more than the ${total} total cases.`
+  if (form.postponedORCases + form.cancelledORCases > total) return `Postponed (${form.postponedORCases}) and cancelled (${form.cancelledORCases}) add up to more than the ${total} total cases.`
+  return ''
 }
 
 function FlowNumber({ label, value, readOnly, onChange }: { label: string; value: number; readOnly?: boolean; onChange: (value: number) => void }) {
@@ -2301,7 +2589,7 @@ function RetentionPatientModal({ businessUnit, type, entry, setEntry, saveEntry,
         <button className="flow-popup-close" onClick={close} aria-label="Close">x</button>
       </div>
       <div className="flow-popup-stack">
-        <PatientLookup key={area} area={area} label="Patient / MRN *" error={errors.patient} value={entry.damaType === type && entry.area === area ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pId: p.id })} />
+        <PatientLookup key={area} businessUnit={businessUnit} area={area} label="Patient / MRN *" error={errors.patient} value={entry.damaType === type && entry.area === area ? entry.patientName : ''} onSelect={(p) => setEntry({ ...entry, damaType: type, area: p.area, patientName: p.name, patientCode: p.code, pCodeSource: p.codeSource, pId: p.id })} />
         <Field label="Retained"><PulseSelect ariaLabel="Retained" value={entry.retained ? 'Yes' : 'No'} onChange={(choice) => setEntry({ ...entry, damaType: type, retained: choice === 'Yes' })} options={[{ value: 'No', label: 'No - case only' }, { value: 'Yes', label: 'Yes - retained' }]} /></Field>
         <Field label="Case notes *" error={errors.reason}><TextArea value={entry.damaType === type ? entry.reason : ''} onChange={(e) => setEntry({ ...entry, damaType: type, reason: e.target.value })} placeholder="Reason, context or retention notes..." /></Field>
       </div>
@@ -2333,26 +2621,109 @@ function NightDischargeCard({ form, earlyDischarges, status, dismissStatus, refr
   </section>
 }
 
-function NightUtilizationCard({ form }: any) {
-  const utilization = [
-    ['Ward', form.inpUtilization, '51 beds'],
-    ['ICU', form.icuUtilization, '21 beds'],
-    ['CCU', form.ccuUtilization, '6 beds'],
-    ['PICU', form.picuUtilization, '2 beds'],
-    ['NICU', form.nicuUtilization, '4 beds'],
-    ['CPU', form.cxUtilization, '0 beds'],
-    ['Stroke', form.strokeUtilization, '0 beds'],
-  ]
+// Night unit utilization: bed capacities per hospital come from dma_facilitycapacities. A unit with no
+// capacity does not exist at that hospital and is not shown. Utilization % = occupied beds / capacity.
+const utilizationUnits: { key: UtilizationUnit; label: string; field: keyof FormState; capacity: string }[] = [
+  { key: 'ward', label: 'Ward', field: 'inpUtilization', capacity: 'dma_wardcapacity' },
+  { key: 'icu', label: 'ICU', field: 'icuUtilization', capacity: 'dma_icucapacity' },
+  { key: 'ccu', label: 'CCU', field: 'ccuUtilization', capacity: 'dma_ccucapacity' },
+  { key: 'picu', label: 'PICU', field: 'picuUtilization', capacity: 'dma_picucapacity' },
+  { key: 'nicu', label: 'NICU', field: 'nicuUtilization', capacity: 'dma_nicucapacity' },
+  { key: 'cpu', label: 'CPU', field: 'cxUtilization', capacity: 'dma_cpu' },
+  { key: 'stroke', label: 'Stroke', field: 'strokeUtilization', capacity: 'dma_strokecapacity' },
+  { key: 'er', label: 'ER', field: 'erUtilization', capacity: 'dma_ercapacity' },
+]
+type FacilityCapacity = { status: 'loading' | 'ready' | 'missing' | 'error'; beds: Partial<Record<UtilizationUnit, number>> }
+const capacityCache = new Map<string, Promise<FacilityCapacity>>()
+
+function loadFacilityCapacity(businessUnit: string): Promise<FacilityCapacity> {
+  const key = String(businessUnit || '')
+  if (!capacityCache.has(key)) {
+    capacityCache.set(key, Services.facilityCapacities.getAll({
+      select: ['dma_facilitycapacityid', ...utilizationUnits.map((unit) => unit.capacity)],
+      filter: `dma_businessunit eq ${Number(key)}`,
+      top: 1,
+    } as any).then((result) => {
+      const row = list<any>(result)[0]
+      if (!row) return { status: 'missing' as const, beds: {} }
+      const beds: Partial<Record<UtilizationUnit, number>> = {}
+      for (const unit of utilizationUnits) if (Number(row[unit.capacity]) > 0) beds[unit.key] = Number(row[unit.capacity])
+      return { status: 'ready' as const, beds }
+    }).catch((error) => {
+      capacityCache.delete(key)
+      console.warn('Facility capacity lookup failed', error)
+      return { status: 'error' as const, beds: {} }
+    }))
+  }
+  return capacityCache.get(key)!
+}
+
+function useFacilityCapacity(businessUnit: string) {
+  const [capacity, setCapacity] = useState<FacilityCapacity>({ status: 'loading', beds: {} })
+  useEffect(() => {
+    let cancelled = false
+    loadFacilityCapacity(businessUnit).then((next) => { if (!cancelled) setCapacity(next) })
+    return () => { cancelled = true }
+  }, [businessUnit])
+  return capacity
+}
+
+// Occupied beds entered this session, or estimated back from the saved percentage for a restored draft.
+function occupiedFor(form: FormState, unit: (typeof utilizationUnits)[number], beds?: number) {
+  const entered = form.occupiedBeds?.[unit.key]
+  if (entered != null) return entered
+  return beds ? Math.round((Number(form[unit.field]) || 0) * beds / 100) : 0
+}
+
+function capacityMessage(capacity: FacilityCapacity, businessUnit: string) {
+  const hospital = labelFor(businessUnits, businessUnit)
+  if (capacity.status === 'loading') return 'Loading bed capacities...'
+  if (capacity.status === 'error') return 'Bed capacities could not be loaded. Try again later.'
+  if (capacity.status === 'missing' || !Object.keys(capacity.beds).length) return `No bed capacities are configured for ${hospital}.`
+  return ''
+}
+
+function NightUtilizationCard({ form }: { form: FormState }) {
+  const capacity = useFacilityCapacity(form.businessUnit)
+  const units = utilizationUnits.filter((unit) => capacity.beds[unit.key])
+  const message = capacityMessage(capacity, form.businessUnit)
   return <aside className="night-util-card">
     <div className="flow-card-head"><h2>Unit utilization</h2><span>Night review</span></div>
-    <div className="night-util-grid">
-      {utilization.map(([label, value, capacity]) => <div className="night-util-tile" key={String(label)}>
-        <small>{label}</small>
-        <b>{value}%</b>
-        <span>{capacity}</span>
-      </div>)}
-    </div>
+    {message ? <p className="night-util-empty">{message}</p> : <div className="night-util-grid">
+      {units.map((unit) => {
+        const beds = capacity.beds[unit.key] || 0
+        return <div className="night-util-tile" key={unit.key}>
+          <small>{unit.label}</small>
+          <b>{Number(form[unit.field]) || 0}%</b>
+          <span>{occupiedFor(form, unit, beds)} / {beds} beds</span>
+        </div>
+      })}
+    </div>}
   </aside>
+}
+
+function UtilizationInputs({ form, updateForm }: { form: FormState; updateForm: (patch: Partial<FormState>) => void }) {
+  const capacity = useFacilityCapacity(form.businessUnit)
+  const units = utilizationUnits.filter((unit) => capacity.beds[unit.key])
+  const message = capacityMessage(capacity, form.businessUnit)
+  function setOccupied(unit: (typeof utilizationUnits)[number], beds: number, value: number) {
+    const occupied = Math.max(0, Number.isFinite(value) ? value : 0)
+    updateForm({ occupiedBeds: { ...form.occupiedBeds, [unit.key]: occupied }, [unit.field]: Math.round((occupied / beds) * 100) } as Partial<FormState>)
+  }
+  return <>
+    <div className="flow-popup-section">Unit utilization (occupied beds)</div>
+    {message ? <p className="night-util-empty">{message}</p> : <div className="flow-popup-grid">
+      {units.map((unit) => {
+        const beds = capacity.beds[unit.key] || 0
+        const occupied = occupiedFor(form, unit, beds)
+        return <label className="flow-popup-field" key={unit.key}>
+          <span>{unit.label} <i className="util-capacity">{beds} beds · {Number(form[unit.field]) || 0}%</i></span>
+          <input type="number" min="0" max={beds} value={occupied} onChange={(e) => setOccupied(unit, beds, Number(e.target.value))} />
+          {occupied > beds && <em className="field-error" role="alert">More occupied beds than the {beds}-bed capacity.</em>}
+        </label>
+      })}
+    </div>}
+  </>
 }
 
 function EarlyDischargeModal({ save, close }: any) {
@@ -2368,7 +2739,7 @@ function EarlyDischargeModal({ save, close }: any) {
     setPatientLookup({ state: 'searching' })
     const timeout = window.setTimeout(async () => {
       try {
-        const patient = await findInpatientByCodeViaXrm(code)
+        const patient = await findInpatientByCode(code)
         if (cancelled) return
         setPatientLookup(patient ? { state: 'found', patient } : { state: 'missing', message: 'No patient was found in the Inpatient List for this code.' })
       } catch (error) {
@@ -2410,7 +2781,7 @@ function EarlyDischargeModal({ save, close }: any) {
   </div>
 }
 
-function OpsTab({ opsIssues, setOpsIssues }: any) {
+function OpsTab({ businessUnit, opsIssues, setOpsIssues }: any) {
   const isMissing = useMissingItem()
   const emptyOpsDraft = (): OpsIssue => ({ id: '', funcId: '', affectedId: '', issueId: '', statusId: '' as Resolution, desc: '', pendingDetails: '' })
   const [draft, setDraft] = useState<OpsIssue>(emptyOpsDraft)
@@ -2449,6 +2820,7 @@ function OpsTab({ opsIssues, setOpsIssues }: any) {
       <span className={`timeline-dot ${o.statusId === '778000001' ? 'low' : 'warning'}`} title={labelFor(resolutionOptions, o.statusId)} />
       <div className="tl-body">
         <h3 className="tl-title">{labelFor(serviceAffectedOptions, o.affectedId)} - {labelFor(opsIssueOptions, o.issueId)}</h3>
+        <OtherHospitalNote carrySource={o.carrySource} businessUnit={businessUnit} />
         {String(o.id || '').startsWith('carry-ops-') && <div className="tl-sub">Carried over from previous shift</div>}
         <p className="tl-desc">{o.desc || 'No issue description recorded.'}</p>
         {o.statusId !== '778000001' && <TimelineField title="Pending details" text={o.pendingDetails} />}
@@ -2514,7 +2886,7 @@ function SummaryTab({ form, updateForm, completion, pendingItems, submitReport, 
         <div className="section-header"><h2>Final review</h2><span>Current shift handover</span></div>
         <Field label="Final handover note - Hot issues during shift *" required="Hot Issues Summary"><TextArea value={form.hotIssues} onChange={(e) => updateForm({ hotIssues: e.target.value })} /></Field>
         <p className="field-help">Capture only issues requiring incoming Duty Manager awareness.</p>
-        {form.shift === 'Night' && <div className="grid night-summary-fields"><Field label="Night Medical Meeting"><PulseSelect ariaLabel="Night medical meeting" value={form.nightMedicalMeeting} onChange={(nightMedicalMeeting) => updateForm({ nightMedicalMeeting })} options={[{ value: '778000000', label: 'Done' }, { value: '778000001', label: 'Not Done' }]} /></Field><Field label="Meeting Summary" required="Night Meeting Summary"><TextArea value={form.nightSummary} onChange={(e) => updateForm({ nightSummary: e.target.value })} /></Field></div>}
+        {form.shift === 'Night' && <div className="grid night-summary-fields"><Field label="Night Medical Meeting *" required="Night Medical Meeting"><PulseSelect ariaLabel="Night medical meeting" placeholder="Select" value={form.nightMedicalMeeting} onChange={(nightMedicalMeeting) => updateForm({ nightMedicalMeeting })} options={[{ value: '778000000', label: 'Done' }, { value: '778000001', label: 'Not Done' }]} /></Field><Field label="Meeting Summary" required="Night Meeting Summary"><TextArea value={form.nightSummary} onChange={(e) => updateForm({ nightSummary: e.target.value })} /></Field></div>}
       </section>
       <aside className="transfer-state"><div className="transfer-head"><h2>Final transfer state</h2><span>Outgoing handover</span></div><div><span>Report state</span><b>{completion.ok ? 'Ready' : 'Review required'}</b></div><div><span>Submission</span><b>Not submitted</b></div><div><span>Incoming responsibility</span><b>Pending assignment</b></div><div><span>Acknowledgment</span><b>Not yet acknowledged</b></div></aside>
     </div>
@@ -2579,8 +2951,10 @@ function ModalShell({ title, tone, onClose, children }: any) {
   return <div className="modal" role="dialog" aria-modal="true"><div className={`modal-content form-modal tone-${tone || 'default'}`}><div className="modal-title-row"><h3>{title}</h3><button className="icon-close" onClick={onClose} aria-label="Close">x</button></div><div className="form-modal-body">{body}</div>{footer}</div></div>
 }
 function ExperiencePanel({ title, subtitle, state, children }: any) { return <section className="experience-card"><div className="experience-head"><div><h3>{title}</h3><small>{subtitle}</small></div>{state && <span className="experience-state">{state}</span>}</div><div className="experience-body">{children}</div></section> }
-function SeverityBubbles({ value, onChange }: { value: Severity; onChange: (value: Severity) => void }) {
-  return <Field label="Severity Level *"><div className="severity-bubbles">{severityOptions.map(([optionValue, optionLabel]) => <button key={optionValue} className={`severity-bubble ${severityClass(optionValue)} ${String(value) === String(optionValue) ? 'active' : ''}`} onClick={() => onChange(optionValue as Severity)}>{optionLabel}</button>)}</div></Field>
+// No severity is preselected: the Duty Manager picks one. A div rather than Field's <label>, because a label passes
+// clicks on its text to the first button inside it, which would quietly pick "Low".
+function SeverityBubbles({ value, onChange, error }: { value: Severity | ''; onChange: (value: Severity) => void; error?: string }) {
+  return <div className={`field${error ? ' has-error' : ''}`} role="group" aria-label="Severity level"><span><LabelText text="Severity Level *" /></span><div className="severity-bubbles">{severityOptions.map(([optionValue, optionLabel]) => <button type="button" key={optionValue} aria-pressed={String(value) === String(optionValue)} className={`severity-bubble ${severityClass(optionValue)} ${String(value) === String(optionValue) ? 'active' : ''}`} onClick={() => onChange(optionValue as Severity)}>{optionLabel}</button>)}</div><FieldError message={error} /></div>
 }
 
 function severityClass(value: string | number) {
@@ -2589,18 +2963,39 @@ function severityClass(value: string | number) {
   return 'low'
 }
 
-function PatientLookup({ area, label, value, error, onSelect }: { area: PatientArea; label: string; value: string; error?: string; onSelect: (patient: { id: string; name: string; code: string; area: PatientArea }) => void }) {
+function PatientLookup({ area, businessUnit, label, value, error, onSelect }: { area: PatientArea; businessUnit?: string; label: string; value: string; error?: string; onSelect: (patient: PatientMatch) => void }) {
   const [query, setQuery] = useState(value || '')
-  const [matches, setMatches] = useState<any[]>([])
+  const [matches, setMatches] = useState<PatientMatch[]>([])
+  const [status, setStatus] = useState('')
+  const latest = useRef(0)
+  const timer = useRef<number | undefined>(undefined)
 
   useEffect(() => { setQuery(value || '') }, [value])
+  useEffect(() => () => window.clearTimeout(timer.current), [])
 
-  async function change(next: string) {
+  // Searches 300 ms after typing stops; only the newest search may update the list.
+  function change(next: string) {
     setQuery(next)
-    setMatches(await searchPatients(area, next))
+    window.clearTimeout(timer.current)
+    const request = ++latest.current
+    if (next.trim().length < 2) { setMatches([]); setStatus(''); return }
+    timer.current = window.setTimeout(async () => {
+      setStatus('Searching...')
+      try {
+        const rows = await searchPatients(area, next, businessUnit)
+        if (request !== latest.current) return
+        setMatches(rows)
+        setStatus(rows.length ? '' : `No ${patientAreaLabels[area]} patients match "${next.trim()}"${businessUnit && area !== 'OPD_KSA' && area !== 'IPD_KSA' ? ` in ${labelFor(businessUnits, businessUnit)}` : ''}.`)
+      } catch (error) {
+        if (request !== latest.current) return
+        console.warn('Patient lookup failed', error)
+        setMatches([])
+        setStatus('Patient search failed. Try again, or contact support if it keeps failing.')
+      }
+    }, 300)
   }
 
-  return <Field label={label} error={error}><div className="lookup-wrap"><input value={query} placeholder="Search by Name or MRN..." onChange={(e) => change(e.target.value)} onBlur={() => setTimeout(() => setMatches([]), 150)} />{matches.length > 0 && <div className="lookup-results">{matches.map((p) => <button className="lookup-item" key={p.id} onClick={() => { onSelect(p); setQuery(`${p.name}${p.code ? ` (${p.code})` : ''}`); setMatches([]) }}>{p.name || 'Unnamed Patient'} {p.code ? `- ${p.code}` : ''}</button>)}</div>}</div></Field>
+  return <Field label={label} error={error}><div className="lookup-wrap"><input value={query} placeholder="Search by name or MRN..." onChange={(e) => change(e.target.value)} onBlur={() => setTimeout(() => setMatches([]), 150)} />{matches.length > 0 && <div className="lookup-results">{matches.map((p) => <button className="lookup-item" key={p.id} onClick={() => { onSelect(p); setQuery(patientDisplay(p.name, p.code, p.codeSource)); setMatches([]); setStatus('') }}>{p.name || 'Unnamed Patient'} {p.code ? `- ${p.codeSource === 'id' ? `Patient ID ${p.code}` : p.code}` : '- No patient code'}</button>)}</div>}{status && <small className="lookup-status" role="status">{status}</small>}</div></Field>
 }
 function Submitted({ form, events, opsIssues, pendingItems, openReport, downloadPdf, goHome }: any) {
   const majorEvents = events.filter((e: EventItem) => e.severity === '778000002')
@@ -2763,6 +3158,7 @@ function ReportModal({ bundle, close, acknowledge, autoDownload, onAutoDownloade
               <ReportMetric label="PICU" value={`${flow.dma_picuutilization ?? 0}%`} />
               <ReportMetric label="NICU" value={`${flow.dma_nicuutilization ?? 0}%`} />
               <ReportMetric label="Stroke" value={`${flow.dma_strokeutilization ?? 0}%`} />
+              <ReportMetric label="ER" value={`${flow.dma_erutilization ?? 0}%`} />
             </ReportGroup>}
             <ReportGroup title="Narratives">
               <ReportMetric label="Delayed discharges" value={flow.dma_delayeddischargesnarrative || 'None'} wide />
@@ -2805,7 +3201,8 @@ function ReportModal({ bundle, close, acknowledge, autoDownload, onAutoDownloade
     </div>
 
     <footer className="report-modal-actions">
-      <button className="btn primary" onClick={acknowledge} disabled={Boolean(r.dma_dmacknowledgmenttimestamp)}>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Acknowledge'}</button>
+      {/* No acknowledge action is passed for view-only users. */}
+      {acknowledge && <button className="btn primary" onClick={acknowledge} disabled={Boolean(r.dma_dmacknowledgmenttimestamp)}>{r.dma_dmacknowledgmenttimestamp ? 'Acknowledged' : 'Acknowledge'}</button>}
       <DownloadPdfButton bundle={bundle} auto={autoDownload} onAutoDone={onAutoDownloaded} />
       <button className="btn" onClick={close}>Close</button>
     </footer>
@@ -2831,7 +3228,7 @@ function buildReportPdf(bundle: ReportBundle): PdfReport {
     { heading: 'Outbound', fields: [['Planned discharges', num(flow.dma_planneddischarges)], ['Unplanned discharges', num(flow.dma_unplanneddischarges)], ['Total discharges', num(flow.dma_discharges)]] },
     { heading: 'Theatre flow', fields: [['Total OR cases', num(flow.dma_totalorcases)], ['Pre-op', num(flow.dma_preoperative)], ['Post-op', num(flow.dma_postoperative)], ['Postponed', num(flow.dma_postponedorcases)], ['Cancelled', num(flow.dma_cancelledorcases)]] },
     { heading: 'DAMA / retention', fields: [['ER cases / retained', `${num(flow.dma_erdama)} / ${num(flow.dma_erdamaretention)}`], ['Inpatient cases / retained', `${num(flow.dma_inpdama)} / ${num(flow.dma_inpdamaretention)}`], ['Closed cases / retained', `${num(flow.dma_closeddama)} / ${num(flow.dma_closeddamaretention)}`]] },
-    ...(isNight ? [{ heading: 'Unit utilization', fields: [['Ward (INP)', `${num(flow.dma_inputilization)}%`], ['ICU', `${num(flow.dma_icuutilization)}%`], ['CCU', `${num(flow.dma_ccuutilization)}%`], ['PICU', `${num(flow.dma_picuutilization)}%`], ['NICU', `${num(flow.dma_nicuutilization)}%`], ['Stroke', `${num(flow.dma_strokeutilization)}%`]] as PdfField[] }] : []),
+    ...(isNight ? [{ heading: 'Unit utilization', fields: [['Ward (INP)', `${num(flow.dma_inputilization)}%`], ['ICU', `${num(flow.dma_icuutilization)}%`], ['CCU', `${num(flow.dma_ccuutilization)}%`], ['PICU', `${num(flow.dma_picuutilization)}%`], ['NICU', `${num(flow.dma_nicuutilization)}%`], ['Stroke', `${num(flow.dma_strokeutilization)}%`], ['ER', `${num(flow.dma_erutilization)}%`]] as PdfField[] }] : []),
     { heading: 'Narratives', fields: [['Delayed discharges', text(flow.dma_delayeddischargesnarrative)], ['Prolonged ER stays', text(flow.dma_prolongedernarrative)]] },
   ] : []
 
@@ -3026,62 +3423,209 @@ function PageTitle({ step, eyebrow, title, subtitle, action }: { step: string; e
 
 type HostUser = { id: string; name: string; upn: string; aadObjectId: string }
 
-function reportPayload(source: FormState, includeDraftStatus = false) {
-  const payload: any = compact({
+// ── Payloads ──
+// Text that was cleared is sent as null so Dataverse clears it too; undefined keys are left untouched.
+const text = (value?: string) => (value && value.trim() ? value : null)
+function defined<T extends Record<string, unknown>>(payload: T) {
+  Object.keys(payload).forEach((key) => {
+    const value = payload[key]
+    if (value === undefined || Number.isNaN(value)) delete payload[key]
+  })
+  return payload
+}
+const isGuid = (value?: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId(value))
+const reportBind = (reportId: string) => `/dma_handoverreports(${cleanId(reportId)})`
+
+function reportPayload(source: FormState) {
+  const night = source.shift === 'Night'
+  const payload: any = defined({
     dma_name: reportCode(source),
     dma_reportdate: source.reportDate ? new Date(source.reportDate).toISOString() : new Date().toISOString(),
     dma_businessunit: Number(source.businessUnit),
     dma_shifttype: shiftMap[source.shift],
-    dma_reportstatus: includeDraftStatus ? 778000001 : undefined,
     dma_hotissues: source.hotIssues || 'Draft Report initiated',
-    dma_nightmedicalmeeting: source.shift === 'Night' ? Number(source.nightMedicalMeeting) : undefined,
-    dma_nightmedicalmeetingsummary: source.shift === 'Night' ? source.nightSummary : undefined,
+    dma_nightmedicalmeeting: night ? (source.nightMedicalMeeting ? Number(source.nightMedicalMeeting) : null) : undefined,
+    dma_nightmedicalmeetingsummary: night ? text(source.nightSummary) : undefined,
   })
   if (source.dmUserId) payload['dma_DutyManager@odata.bind'] = `/systemusers(${cleanId(source.dmUserId)})`
   return payload
 }
 
-async function persistGeneral(source: FormState, existingId: string) {
-  const payload = reportPayload(source, !existingId)
-  if (existingId) {
-    await Services.reports.update(cleanId(existingId), payload)
-    return cleanId(existingId)
-  }
-  const created = unwrap<any>(await Services.reports.create(payload))
-  const id = cleanId(created?.dma_handoverreportid || created?.id)
-  if (!id) throw new Error('Dataverse did not return the new handover report ID.')
-  return id
-}
-
 function patientFlowPayload(source: FormState) {
-  return compact({
+  return defined({
     dma_name: `${reportCode(source)} Flow`,
     dma_staffadequacy: Number(source.staffAdequacy), dma_ervolume: source.erVolume,
     dma_unplanneddischarges: source.unplannedDischarges,
     dma_totalorcases: source.totalORCases, dma_preoperative: source.preoperative, dma_postoperative: source.postoperative, dma_postponedorcases: source.postponedORCases, dma_cancelledorcases: source.cancelledORCases,
     dma_erdama: source.erDama, dma_erdamaretention: source.erDamaRetention, dma_inpdama: source.inpDama, dma_inpdamaretention: source.inpDamaRetention,
-    dma_closeddama: source.closedDama, dma_closeddamaretention: source.closedDamaRetention, dma_shortagetype: source.shortageTypes[0] ? Number(source.shortageTypes[0]) : undefined,
-    dma_shortfallsummary: source.shortfallSummary, dma_inputilization: source.inpUtilization, dma_icuutilization: source.icuUtilization, dma_ccuutilization: source.ccuUtilization,
-    dma_picuutilization: source.picuUtilization, dma_nicuutilization: source.nicuUtilization, dma_cxutilization: source.cxUtilization, dma_strokeutilization: source.strokeUtilization,
-    dma_delayeddischargesnarrative: source.delayedDischargesNarrative,
-    dma_prolongedernarrative: source.prolongedERNarrative,
+    dma_closeddama: source.closedDama, dma_closeddamaretention: source.closedDamaRetention,
+    // Every selected shortage type is stored as a dma_coverageshortage row; this column keeps the first.
+    dma_shortagetype: source.staffAdequacy === '778000000' && source.shortageTypes[0] ? Number(source.shortageTypes[0]) : null,
+    dma_shortfallsummary: source.staffAdequacy === '778000000' ? text(source.shortfallSummary) : null,
+    dma_inputilization: source.inpUtilization, dma_icuutilization: source.icuUtilization, dma_ccuutilization: source.ccuUtilization,
+    dma_picuutilization: source.picuUtilization, dma_nicuutilization: source.nicuUtilization, dma_cxutilization: source.cxUtilization, dma_strokeutilization: source.strokeUtilization, dma_erutilization: source.erUtilization,
+    dma_delayeddischargesnarrative: text(source.delayedDischargesNarrative),
+    dma_prolongedernarrative: text(source.prolongedERNarrative),
   })
+}
+
+function experiencePayload(source: FormState, reportId: string) {
+  return defined({
+    dma_name: `${reportCode(source)} Experience`,
+    dma_escalatedcomplaints: source.complaintsCount,
+    dma_summaryofnewongoingcomplaints: text(source.complaintsSummary),
+    dma_escalatedovrs: source.ovrsCount,
+    dma_summaryofnewovrs: text(source.ovrsSummary),
+    dma_governmentalregulatoryvisits: source.govVisit === 'Yes' ? 999740000 : 999740001,
+    dma_authoritynamefindingssummary: source.govVisit === 'Yes' ? text(source.govSummary) : null,
+    'dma_ReportID@odata.bind': reportBind(reportId),
+  })
+}
+
+// Patient lookups on hospital events, administrative issue entries and patient-flow (DAMA) entries.
+// Targets confirmed from the Dataverse relationship metadata (e.g. dma_opdpatientksa -> opd_ksapatients).
+const patientLookupBinds: Record<PatientArea, [bind: string, entitySet: string]> = {
+  ER: ['dma_ERPatient@odata.bind', 'cr301_ervisitses'],
+  IPD: ['dma_IPDPatients@odata.bind', 'ipd_patients'],
+  IPD_KSA: ['dma_IPDPatientsKSA@odata.bind', 'and_inpatientlists'],
+  OPD_EG: ['dma_OPDPatientEG@odata.bind', 'opd_patients'],
+  OPD_KSA: ['dma_OPDPatientKSA@odata.bind', 'opd_ksapatientses'],
+}
+
+function patientBinds(area?: PatientArea, id?: string): Record<string, string> {
+  if (!area || !id) return {}
+  const [bind, entitySet] = patientLookupBinds[area]
+  return { [bind]: `/${entitySet}(${cleanId(id)})` }
+}
+
+// On update the other areas' patient lookups are cleared, so a record never points at two patients.
+function clearedPatientBinds(area?: PatientArea): Record<string, null> {
+  return Object.fromEntries(Object.entries(patientLookupBinds).filter(([key]) => key !== area).map(([, [bind]]) => [bind, null]))
+}
+
+function eventPayload(event: EventItem, reportId: string) {
+  return defined({
+    dma_name: `${event.typeText} - ${event.codeText}`,
+    dma_severitylevel: Number(event.severity),
+    dma_incidentdescription: text(event.desc),
+    dma_immediateactionstaken: text(event.actions),
+    'dma_ReportID@odata.bind': reportBind(reportId),
+    'dma_EventType@odata.bind': event.typeId ? `/dma_eventtypes(${cleanId(event.typeId)})` : undefined,
+    'dma_EventCode@odata.bind': event.codeId ? `/dma_eventcodes(${cleanId(event.codeId)})` : undefined,
+    ...patientBinds(event.area, event.pId),
+  })
+}
+
+function adminPayload(issue: AdminIssue, reportId: string) {
+  return defined({
+    dma_name: issue.catLabel,
+    dma_description: text(issue.desc),
+    dma_actiontaken: text(issue.action),
+    dma_pendingissues: issue.status === '778000001' ? null : text(issue.pendingDetails),
+    dma_count: 1,
+    dma_resolutionstatus: Number(issue.status),
+    // Only a catalog row id can be bound; the fallback category choices have no row to link to.
+    'dma_IssueID@odata.bind': isGuid(issue.catId) ? `/dma_administrativeissues(${cleanId(issue.catId)})` : undefined,
+    'dma_ReportID@odata.bind': reportBind(reportId),
+    ...patientBinds(issue.area, issue.pId),
+  })
+}
+
+function opsPayload(issue: OpsIssue, reportId: string) {
+  return defined({
+    dma_name: `${labelFor(serviceAffectedOptions, issue.affectedId)} - ${labelFor(opsIssueOptions, issue.issueId)}`,
+    dma_servicefunctionality: Number(issue.funcId),
+    dma_serviceaffected: Number(issue.affectedId),
+    dma_typeofissue: Number(issue.issueId),
+    dma_descriptionofissue: text(issue.desc),
+    dma_resolutionstatus: Number(issue.statusId),
+    dma_pendingissues: issue.statusId === '778000001' ? null : text(issue.pendingDetails),
+    'dma_ReportID@odata.bind': reportBind(reportId),
+  })
+}
+
+function damaArea(entry: DamaEntry): PatientArea {
+  return entry.area || (entry.damaType === 'ER' ? 'ER' : 'IPD')
+}
+
+function damaPayload(entry: DamaEntry, flowId: string) {
+  return defined({
+    dma_name: entry.patientName || 'DAMA Patient',
+    dma_erdama: entry.damaType === 'ER' ? 1 : 0,
+    dma_inpdama: entry.damaType === 'INP' ? 1 : 0,
+    dma_reason: text(entry.reason),
+    dma_actiontaken: entry.retained ? 'Retained' : 'Not retained',
+    'dma_PatientFlow@odata.bind': `/dma_patientflowsummaries(${cleanId(flowId)})`,
+    ...patientBinds(damaArea(entry), entry.pId),
+  })
+}
+
+// ── Saving only what changed ──
+// Last payload written for each record (key: entity set + id). Autosave skips records whose payload
+// is unchanged, so one edit writes one record instead of rewriting the whole draft.
+const savedPayloads = new Map<string, string>()
+const payloadKey = (entitySet: string, id: string) => `${entitySet}:${cleanId(id).toLowerCase()}`
+
+function rememberPayload(entitySet: string, id: string | undefined, payload: unknown) {
+  if (id) savedPayloads.set(payloadKey(entitySet, id), JSON.stringify(payload))
+}
+
+function forgetSavedPayloads() {
+  savedPayloads.clear()
+}
+
+type RowService = { create: (record: any) => Promise<unknown>; update: (id: string, record: any) => Promise<unknown> }
+
+async function saveRow(service: RowService, entitySet: string, primaryKey: string, id: string | undefined, payload: Record<string, unknown>, extras: { create?: Record<string, unknown>; update?: Record<string, unknown> } = {}) {
+  if (id) {
+    const clean = cleanId(id)
+    if (savedPayloads.get(payloadKey(entitySet, clean)) === JSON.stringify(payload)) return clean
+    await service.update(clean, { ...payload, ...extras.update })
+    rememberPayload(entitySet, clean, payload)
+    return clean
+  }
+  const created = resultId(await service.create({ ...payload, ...extras.create }), primaryKey)
+  rememberPayload(entitySet, created, payload)
+  return created
+}
+
+// Marks an opened draft's records as already saved, so opening a draft writes nothing.
+function seedSavedPayloads(source: FormState, draft: DraftRecord) {
+  const report = cleanId(draft.reportId)
+  if (!report) return
+  const flow = cleanId(draft.flowSummaryId)
+  rememberPayload('dma_handoverreports', report, reportPayload(source))
+  if (flow) rememberPayload('dma_patientflowsummaries', flow, patientFlowPayload(source))
+  rememberPayload('dma_patientexperiences', draft.experienceId, experiencePayload(source, report))
+  ;(draft.events || []).forEach((row) => rememberPayload('dma_hospitalevents', row.dataverseId, eventPayload(row, report)))
+  ;(draft.adminIssues || []).forEach((row) => rememberPayload('dma_administrativeissueentries', row.dataverseId, adminPayload(row, report)))
+  ;(draft.opsIssues || []).forEach((row) => rememberPayload('dma_opeartions', row.dataverseId, opsPayload(row, report)))
+  if (flow) (draft.damaEntries || []).forEach((row) => rememberPayload('dma_patientflowentries', row.dataverseId, damaPayload(row, flow)))
+  savedPayloads.set(`coverage:${report}`, coverageKey(source))
+}
+
+async function persistGeneral(source: FormState, existingId: string) {
+  return saveRow(Services.reports, 'dma_handoverreports', 'dma_handoverreportid', existingId || undefined, reportPayload(source), { create: { dma_reportstatus: 778000001 } })
 }
 
 async function persistFlow(source: FormState, reportId: string, existingId: string) {
   if (!reportId) throw new Error('A handover report ID is required before patient flow can be saved.')
-  const payload: any = patientFlowPayload(source)
-  if (existingId) {
-    await Services.flow.update(cleanId(existingId), payload)
-    await syncCoverageShortages(reportId, source)
-    return cleanId(existingId)
-  }
-  payload['dma_ReportID@odata.bind'] = `/dma_handoverreports(${cleanId(reportId)})`
-  const created = unwrap<any>(await Services.flow.create(payload))
-  const id = cleanId(created?.dma_patientflowsummaryid || created?.id)
-  if (!id) throw new Error('Dataverse did not return the new patient-flow summary ID.')
+  const id = await saveRow(Services.flow, 'dma_patientflowsummaries', 'dma_patientflowsummaryid', existingId || undefined, patientFlowPayload(source), { create: { 'dma_ReportID@odata.bind': reportBind(reportId) } })
   await syncCoverageShortages(reportId, source)
   return id
+}
+
+// A submitted (Completed or Acknowledged) report for the same business unit, shift and shift date.
+async function findSubmittedReportForSlot(source: FormState, currentReportId: string) {
+  const rows = list<any>(await Services.reports.getAll({
+    select: ['dma_handoverreportid', 'dma_name', 'dma_reportdate', 'dma_reportstatus', 'dma_hotissues', 'statecode', 'createdon'],
+    filter: `statecode eq 0 and dma_businessunit eq ${Number(source.businessUnit)} and dma_shifttype eq ${shiftMap[source.shift]} and (dma_reportstatus eq 778000002 or dma_reportstatus eq 778000000)`,
+    orderBy: ['dma_reportdate desc'],
+    top: 50,
+  } as any))
+  const day = shiftBusinessDate(source.reportDate, source.shift)
+  return rows.find((row) => cleanId(row.dma_handoverreportid) !== cleanId(currentReportId) && isSubmittedReport(row)
+    && shiftBusinessDate(row.dma_reportdate || row.createdon, source.shift) === day) || null
 }
 
 async function coverageShortageRows(reportId: string) {
@@ -3094,10 +3638,16 @@ async function coverageShortageRows(reportId: string) {
   } as any))
 }
 
+function coverageKey(source: FormState) {
+  return source.staffAdequacy === '778000000' ? [...(source.shortageTypes || [])].map(String).sort().join(',') : ''
+}
+
 async function syncCoverageShortages(reportId: string, source: FormState) {
   const report = cleanId(reportId)
   if (!report) throw new Error('The handover report must exist before coverage shortages can be saved.')
-  const desired = new Set(source.staffAdequacy === '778000000' ? (source.shortageTypes || []).map(String) : [])
+  const key = coverageKey(source)
+  if (savedPayloads.get(`coverage:${report}`) === key) return
+  const desired = new Set(key ? key.split(',') : [])
   const existing = await coverageShortageRows(report)
   const retainedTypes = new Set<string>()
 
@@ -3115,14 +3665,16 @@ async function syncCoverageShortages(reportId: string, source: FormState) {
     await Services.coverageShortages.create({
       dma_name: `${reportCode(source)} - ${labelFor(shortageOptions, type)}`,
       dma_shortagetype: Number(type),
-      'dma_ReportID@odata.bind': `/dma_handoverreports(${report})`,
+      'dma_ReportID@odata.bind': reportBind(report),
     } as any)
   }
+  savedPayloads.set(`coverage:${report}`, key)
 }
 
 async function deleteCoverageShortages(reportId: string) {
   const rows = await coverageShortageRows(reportId)
   await Promise.all(rows.map((row) => Services.coverageShortages.delete(cleanId(row.dma_coverageshortageid))))
+  savedPayloads.delete(`coverage:${cleanId(reportId)}`)
 }
 
 // User-facing text only; the full stack goes to the console for debugging.
@@ -3166,9 +3718,9 @@ async function getLoggedInUser(): Promise<HostUser> {
 
 function getXrmUser(): HostUser {
   const candidates: any[] = []
-  try { candidates.push(window) } catch {}
-  try { candidates.push(window.parent) } catch {}
-  try { candidates.push(window.top) } catch {}
+  try { candidates.push(window) } catch { /* cross-origin frame: not readable */ }
+  try { candidates.push(window.parent) } catch { /* cross-origin frame: not readable */ }
+  try { candidates.push(window.top) } catch { /* cross-origin frame: not readable */ }
 
   for (const candidate of candidates) {
     try {
@@ -3177,7 +3729,7 @@ function getXrmUser(): HostUser {
       if (user?.userName) {
         return { id: '', name: user.userName, upn: '', aadObjectId: '' }
       }
-    } catch {}
+    } catch { /* this host does not expose a user; try the next one */ }
   }
 
   return { id: '', name: '', upn: '', aadObjectId: '' }
@@ -3185,9 +3737,9 @@ function getXrmUser(): HostUser {
 
 function getBridgeUser(): HostUser {
   const candidates: any[] = []
-  try { candidates.push(window) } catch {}
-  try { candidates.push(window.parent) } catch {}
-  try { candidates.push(window.top) } catch {}
+  try { candidates.push(window) } catch { /* cross-origin frame: not readable */ }
+  try { candidates.push(window.parent) } catch { /* cross-origin frame: not readable */ }
+  try { candidates.push(window.top) } catch { /* cross-origin frame: not readable */ }
 
   for (const candidate of candidates) {
     try {
@@ -3198,7 +3750,7 @@ function getBridgeUser(): HostUser {
       const upn = user.userPrincipalName || user.email || user.mail || ''
       const aadObjectId = cleanId(user.objectId || user.aadObjectId || '')
       if (id || name || upn || aadObjectId) return { id, name, upn, aadObjectId }
-    } catch {}
+    } catch { /* this host does not expose a user; try the next one */ }
   }
 
   return { id: '', name: '', upn: '', aadObjectId: '' }
@@ -3216,12 +3768,6 @@ async function resolveSystemUser(hostUser: HostUser) {
   ].filter(Boolean)
 
   for (const filter of filters) {
-    const xrmUser = await retrieveSystemUserViaXrm(filter).catch((error) => {
-      console.warn(`Xrm systemuser lookup failed for ${filter}`, error)
-      return null
-    })
-    if (xrmUser?.systemuserid) return xrmUser
-
     try {
       const users = list(await Services.users.getAll({ select, filter, top: 1 } as any))
       if (users[0]?.systemuserid) return users[0]
@@ -3241,35 +3787,14 @@ function isAppPrincipalName(value: string) {
   return /\b(appagents|s2s|application|service principal|prod application)\b/i.test(value)
 }
 
-// Xrm.WebApi always talks to the hosting environment, but the data lives in DT New (see dataverse.ts).
-// Returning null routes every read/write through the cross-environment Services instead.
-function getXrmWebApi(): any {
-  return null
-}
-
-async function retrieveHandoverReportsViaXrm(filterValue = 'all') {
-  const api = getXrmWebApi()
-  if (!api) return []
-  let query = '?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_shifttype,dma_reportstatus,statecode,statuscode,dma_hotissues,createdon,dma_businessunit,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$top=100&$orderby=createdon desc'
-  if (filterValue !== 'all') query += `&$filter=dma_businessunit eq ${filterValue}`
-  const result = await api.retrieveMultipleRecords('dma_handoverreport', query)
-  return result?.entities || []
-}
 
 async function retrievePreviousSameBuReport(form: FormState, currentReportId?: string) {
   if (!form.businessUnit || !form.reportDate) return null
-  const api = getXrmWebApi()
   const currentDate = new Date(form.reportDate)
   const cleanCurrentId = cleanId(currentReportId || '')
   const beforeFilter = Number.isNaN(currentDate.getTime()) ? '' : ` and dma_reportdate lt ${currentDate.toISOString()}`
   const excludeCurrent = cleanCurrentId ? ` and dma_handoverreportid ne ${cleanCurrentId}` : ''
   const filter = `statecode eq 0 and (dma_reportstatus eq 778000002 or (dma_reportstatus eq 778000000 and (dma_hotissues ne 'Draft Report initiated' or dma_hotissues eq null))) and dma_businessunit eq ${form.businessUnit}${beforeFilter}${excludeCurrent}`
-
-  if (api) {
-    const query = `?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_shifttype,createdon,dma_businessunit,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$filter=${filter}&$orderby=dma_reportdate desc,createdon desc&$top=1`
-    const result = await api.retrieveMultipleRecords('dma_handoverreport', query)
-    return result?.entities?.[0] || null
-  }
 
   const result = await Services.reports.getAll({
     select: ['dma_handoverreportid', 'dma_name', 'dma_reportdate', 'dma_shifttype', 'createdon', 'dma_businessunit', 'dma_dmacknowledgmenttimestamp', '_dma_dutymanager_value'],
@@ -3280,45 +3805,77 @@ async function retrievePreviousSameBuReport(form: FormState, currentReportId?: s
   return list(result)[0] || null
 }
 
+// Which patient lookup a saved row uses (events, admin issues and DAMA entries have one per area).
+const patientLookupColumns: [PatientArea, string][] = [['ER', '_dma_erpatient_value'], ['IPD', '_dma_ipdpatients_value'], ['IPD_KSA', '_dma_ipdpatientsksa_value'], ['OPD_EG', '_dma_opdpatienteg_value'], ['OPD_KSA', '_dma_opdpatientksa_value']]
+
+function patientOfRow(row: any): { area?: PatientArea; pId?: string; label?: string } {
+  for (const [area, column] of patientLookupColumns) {
+    if (row?.[column]) return { area, pId: cleanId(row[column]), label: row[`${column}@OData.Community.Display.V1.FormattedValue`] || '' }
+  }
+  return {}
+}
+
+// Name and code of a linked patient, read from its source table. The lookup's display value is the
+// source table's primary column, which for several sources is a record code rather than the patient's name.
+const patientDetailsCache = new Map<string, Promise<{ name: string; code: string; codeSource: PatientCodeSource }>>()
+function describePatient(area: PatientArea, id: string, fallback = '') {
+  const key = `${area}:${cleanId(id).toLowerCase()}`
+  if (!patientDetailsCache.has(key)) {
+    const source = patientSources[area]
+    patientDetailsCache.set(key, source.service.get(cleanId(id), { select: [source.id, source.name, ...source.codes] })
+      .then((result) => {
+        const row = unwrap<any>(result)
+        const codeIndex = source.codes.findIndex((field) => row?.[field])
+        return { name: String(row?.[source.name] || fallback).trim(), code: codeIndex >= 0 ? String(row[source.codes[codeIndex]]) : '', codeSource: (codeIndex > 0 ? 'id' : 'code') as PatientCodeSource }
+      })
+      .catch(() => { patientDetailsCache.delete(key); return { name: fallback, code: '', codeSource: 'code' as PatientCodeSource } }))
+  }
+  return patientDetailsCache.get(key)!
+}
+
+// Fills patient names and codes on a draft restored from Dataverse (events, admin issues, DAMA entries).
+async function withPatientDetails(draft: DraftRecord): Promise<DraftRecord> {
+  const fill = async <T extends { area?: PatientArea; pId?: string }>(row: T, apply: (row: T, details: { name: string; code: string; codeSource: PatientCodeSource }) => T) =>
+    row.area && row.pId ? apply(row, await describePatient(row.area, row.pId, (row as any).pName || (row as any).patientName || '')) : row
+  const [events, adminIssues, damaEntries] = await Promise.all([
+    Promise.all((draft.events || []).map((row) => fill(row, (r, d) => ({ ...r, pName: d.name, pCode: d.code, pCodeSource: d.codeSource })))),
+    Promise.all((draft.adminIssues || []).map((row) => fill(row, (r, d) => ({ ...r, pName: d.name, pCode: d.code, pCodeSource: d.codeSource })))),
+    Promise.all((draft.damaEntries || []).map((row) => fill(row, (r, d) => ({ ...r, patientName: d.name, patientCode: d.code, pCodeSource: d.codeSource })))),
+  ])
+  return { ...draft, events, adminIssues, damaEntries }
+}
+
 async function retrieveCarryForwardItems(previousReportId: string) {
   const report = cleanId(previousReportId)
   if (!report) return []
-  const api = getXrmWebApi()
-  let adminRows: any[] = []
-  let opsRows: any[] = []
+  const [admin, ops] = await Promise.all([
+    Services.adminEntries.getAll({ select: bundleColumns.admin, filter: `_dma_reportid_value eq ${report}` } as any),
+    Services.ops.getAll({ select: bundleColumns.ops, filter: `_dma_reportid_value eq ${report}` } as any),
+  ])
+  const adminRows = list<any>(admin)
+  const opsRows = list<any>(ops)
 
-  if (api) {
-    const [admin, ops] = await Promise.all([
-      api.retrieveMultipleRecords('dma_administrativeissueentry', `?$filter=_dma_reportid_value eq ${report}&$expand=dma_IssueID($select=dma_administrativeissueid,dma_name)`),
-      api.retrieveMultipleRecords('dma_opeartion', `?$filter=_dma_reportid_value eq ${report}`),
-    ])
-    adminRows = admin?.entities || []
-    opsRows = ops?.entities || []
-  } else {
-    const [admin, ops] = await Promise.all([
-      Services.adminEntries.getAll({ filter: `_dma_reportid_value eq ${report}` } as any),
-      Services.ops.getAll({ filter: `_dma_reportid_value eq ${report}` } as any),
-    ])
-    adminRows = list(admin)
-    opsRows = list(ops)
-  }
-
-  const unresolvedAdmin = adminRows
+  // Carried administrative issues keep their category and patient, so the copy is complete.
+  const unresolvedAdmin = await Promise.all(adminRows
     .filter((row) => String(row.dma_resolutionstatus || '') !== '778000001')
-    .map((row) => {
+    .map(async (row) => {
       const sourceId = row.dma_administrativeissueentryid || row.id || `admin-${row.dma_name || Date.now()}`
+      const patient = patientOfRow(row)
+      const details = patient.area && patient.pId ? await describePatient(patient.area, patient.pId, patient.label) : { name: '', code: '', codeSource: 'code' as PatientCodeSource }
       return {
         id: `prev-admin-${sourceId}`,
         targetId: `carry-admin-${cleanId(sourceId)}`,
         kind: 'admin',
-        title: row.dma_IssueID?.dma_name || row.dma_issueidname || row.dma_name || 'Administrative issue',
+        catId: cleanId(row._dma_issueid_value || ''),
+        title: row['_dma_issueid_value@OData.Community.Display.V1.FormattedValue'] || row.dma_name || 'Administrative issue',
         description: row.dma_description || row.dma_pendingissues || row.dma_actiontaken || '',
         action: row.dma_actiontaken || '',
         pending: row.dma_pendingissues || '',
         status: String(row.dma_resolutionstatus || '778000000'),
+        area: patient.area, pId: patient.pId, pName: details.name, pCode: details.code, pCodeSource: details.codeSource,
         age: 'Previous shift',
       }
-    })
+    }))
 
   const unresolvedOps = opsRows
     .filter((row) => String(row.dma_resolutionstatus || '') !== '778000001')
@@ -3346,98 +3903,61 @@ async function acknowledgeHandoverReport(id: string, timestamp: string) {
   const current = unwrap<any>(await Services.reports.get(cleanId(id)))
   if (!isSubmittedReport(current)) throw new Error('A draft cannot be acknowledged before final submission.')
   const payload = { dma_dmacknowledgmenttimestamp: timestamp, dma_reportstatus: 778000000, statecode: 0, statuscode: 1 } as any
-  const api = getXrmWebApi()
-  if (api) {
-    await api.updateRecord('dma_handoverreport', cleanId(id), payload)
-    return
-  }
   await Services.reports.update(cleanId(id), payload)
 }
 
-async function retrieveDraftBundle(id: string): Promise<ReportBundle> {
+
+// A report with all of its linked records. Throws if any read fails, so a failed read never looks like empty data.
+async function retrieveReportBundle(id: string): Promise<ReportBundle> {
   const clean = cleanId(id)
   const filter = `_dma_reportid_value eq ${clean}`
   const [report, flow, events, admin, ops, experience] = await Promise.all([
-    Services.reports.get(clean), Services.flow.getAll({ filter }), Services.events.getAll({ filter }),
-    Services.adminEntries.getAll({ filter }), Services.ops.getAll({ filter }), Services.experience.getAll({ filter }),
+    Services.reports.get(clean, { select: bundleColumns.report }),
+    Services.flow.getAll({ select: bundleColumns.flow, filter, orderBy: ['createdon desc'] } as any),
+    Services.events.getAll({ select: bundleColumns.events, filter, orderBy: ['createdon asc'] } as any),
+    Services.adminEntries.getAll({ select: bundleColumns.admin, filter, orderBy: ['createdon asc'] } as any),
+    Services.ops.getAll({ select: bundleColumns.ops, filter, orderBy: ['createdon asc'] } as any),
+    Services.experience.getAll({ select: bundleColumns.experience, filter } as any),
   ])
   const flowRows = list(flow)
   const flowId = cleanId(flowRows[0]?.dma_patientflowsummaryid || '')
-  // Failed child reads must not create an empty editable copy of saved data.
-  const flowEntries = flowId ? list(await Services.flowEntries.getAll({ filter: `_dma_patientflow_value eq ${flowId}` })) : []
+  const flowEntries = flowId ? list(await Services.flowEntries.getAll({ select: bundleColumns.flowEntries, filter: `_dma_patientflow_value eq ${flowId}`, orderBy: ['createdon asc'] } as any)) : []
   return { report: unwrap(report), flow: flowRows, flowEntries, events: list(events), admin: list(admin), ops: list(ops), experience: list(experience) }
 }
 
-async function retrieveReportBundleViaXrm(id: string): Promise<ReportBundle | null> {
-  const api = getXrmWebApi()
-  if (!api) return null
-  const clean = cleanId(id)
-  const [report, flow, events, admin, ops, experience] = await Promise.all([
-    api.retrieveRecord('dma_handoverreport', clean, '?$select=dma_handoverreportid,dma_name,dma_reportdate,dma_businessunit,dma_shifttype,dma_hotissues,dma_nightmedicalmeeting,dma_nightmedicalmeetingsummary,dma_dmacknowledgmenttimestamp,_dma_dutymanager_value&$expand=dma_DutyManager($select=fullname)'),
-    api.retrieveMultipleRecords('dma_patientflowsummary', `?$filter=_dma_reportid_value eq ${clean}`),
-    api.retrieveMultipleRecords('dma_hospitalevent', `?$filter=_dma_reportid_value eq ${clean}`),
-    api.retrieveMultipleRecords('dma_administrativeissueentry', `?$filter=_dma_reportid_value eq ${clean}&$expand=dma_IssueID($select=dma_administrativeissueid,dma_name)`),
-    api.retrieveMultipleRecords('dma_opeartion', `?$filter=_dma_reportid_value eq ${clean}`),
-    api.retrieveMultipleRecords('dma_patientexperience', `?$filter=_dma_reportid_value eq ${clean}`),
-  ])
-  const flowRows = flow?.entities || []
-  const flowId = cleanId(flowRows[0]?.dma_patientflowsummaryid || '')
-  const flowEntries = flowId ? await api.retrieveMultipleRecords('dma_patientflowentry', `?$filter=_dma_patientflow_value eq ${flowId}`).catch(() => ({ entities: [] })) : { entities: [] }
-  return {
-    report,
-    flow: flowRows,
-    flowEntries: flowEntries?.entities || [],
-    events: events?.entities || [],
-    admin: admin?.entities || [],
-    ops: ops?.entities || [],
-    experience: experience?.entities || [],
-  }
+
+// The automatic counts (admissions, discharges, planned, delayed, prolonged) are filled outside the app.
+// found = a summary row exists; populated = at least one automatic count has a value.
+async function retrievePatientFlowSummary(id: string): Promise<{ found: boolean; populated: boolean; patch: Partial<FormState> }> {
+  const numberFields: [keyof FormState, string][] = [
+    ['erAdmissions', 'dma_eradmissions'],
+    ['opdAdmissions', 'dma_opdadmissions'],
+    ['plannedDischarges', 'dma_planneddischarges'],
+    ['delayedDischargesCount', 'dma_delayeddischargescount'],
+    ['prolongedERAdmissionsCount', 'dma_prolongederadmissionscount'],
+  ]
+  const result = await Services.flow.getAll({ select: ['dma_patientflowsummaryid', ...numberFields.map(([, field]) => field)], filter: `_dma_reportid_value eq ${cleanId(id)}`, orderBy: ['createdon desc'], top: 1 } as any)
+  const row = list<any>(result)[0]
+  const patch: Partial<FormState> = {}
+  if (!row) return { found: false, populated: false, patch }
+  numberFields.forEach(([formField, dataverseField]) => {
+    if (row[dataverseField] !== undefined && row[dataverseField] !== null) (patch as any)[formField] = toNumeric(row[dataverseField])
+  })
+  return { found: true, populated: Object.keys(patch).length > 0, patch }
 }
 
-async function retrievePatientFlowSummary(id: string): Promise<Partial<FormState>> {
-  const api = getXrmWebApi()
-  const clean = cleanId(id)
-  const fromRow = (row: any): Partial<FormState> => {
-    const patch: Partial<FormState> = {}
-    if (!row) return patch
-    const numberFields: [keyof FormState, string][] = [
-      ['erAdmissions', 'dma_eradmissions'],
-      ['opdAdmissions', 'dma_opdadmissions'],
-      ['admissions', 'dma_admissions'],
-      ['discharges', 'dma_discharges'],
-      ['plannedDischarges', 'dma_planneddischarges'],
-      ['delayedDischargesCount', 'dma_delayeddischargescount'],
-      ['prolongedERAdmissionsCount', 'dma_prolongederadmissionscount'],
-    ]
-    numberFields.forEach(([formField, dataverseField]) => {
-      if (row[dataverseField] !== undefined && row[dataverseField] !== null) (patch as any)[formField] = toNumeric(row[dataverseField])
-    })
-    return patch
-  }
-
-  if (api) {
-    try {
-      const flow = await api.retrieveMultipleRecords('dma_patientflowsummary', `?$filter=_dma_reportid_value eq ${clean}&$top=1&$orderby=createdon desc`)
-      return fromRow(flow?.entities?.[0])
-    } catch (error) {
-      console.warn('Xrm patient-flow refresh failed; trying generated Dataverse service', error)
-    }
-  }
-
-  const result = await Services.flow.getAll({ filter: `_dma_reportid_value eq ${clean}`, orderBy: ['createdon desc'], top: 1 } as any)
-  return fromRow(list(result)[0])
-}
-
+// The discharge plan is a Night-shift task: "tomorrow" is the day after the night started, so a report
+// written at 02:00 still plans for the same morning as one written at 22:00 the evening before.
 function targetDischargeDate(reportDate: string) {
-  if (!reportDate) return ''
-  const base = new Date(reportDate)
-  if (Number.isNaN(base.getTime())) return ''
-  base.setDate(base.getDate() + 1)
+  const nightOf = shiftBusinessDate(reportDate, 'Night')
+  const match = nightOf.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ''
+  const base = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1)
   const pad = (input: number) => String(input).padStart(2, '0')
   return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`
 }
 
-async function syncEarlyDischargesViaXrm(reportDate: string): Promise<{ masterId: string; rows: EarlyDischarge[] }> {
+async function syncEarlyDischarges(reportDate: string): Promise<{ masterId: string; rows: EarlyDischarge[] }> {
   const targetDate = targetDischargeDate(reportDate)
   if (!targetDate) return { masterId: '', rows: [] }
   const masters = list(await Services.earlyDischargeMasters.getAll({
@@ -3464,8 +3984,8 @@ async function syncEarlyDischargesViaXrm(reportDate: string): Promise<{ masterId
   return { masterId, rows }
 }
 
-async function createEarlyDischargeViaXrm(masterId: string, draft: { type: EarlyDischarge['type']; patientCode: string; reason: string }): Promise<EarlyDischarge> {
-  const patient = await findInpatientByCodeViaXrm(draft.patientCode)
+async function createEarlyDischarge(masterId: string, draft: { type: EarlyDischarge['type']; patientCode: string; reason: string }): Promise<EarlyDischarge> {
+  const patient = await findInpatientByCode(draft.patientCode)
   if (!patient?.and_inpatientlistid) throw new Error('No inpatient was found for that patient code.')
   const patientId = cleanId(patient.and_inpatientlistid)
   const duplicates = list(await Services.earlyDischargePatients.getAll({
@@ -3520,11 +4040,11 @@ async function createEarlyDischargeViaXrm(masterId: string, draft: { type: Early
   }
 }
 
-async function deleteEarlyDischargeViaXrm(id: string) {
+async function deleteEarlyDischargeRow(id: string) {
   await Services.earlyDischargePatients.delete(cleanId(id))
 }
 
-async function findInpatientByCodeViaXrm(code: string) {
+async function findInpatientByCode(code: string) {
   const safe = escapeOData(code.trim())
   const patients = list(await Services.inpatientList.getAll({ select: ['and_inpatientlistid', 'and_name', 'and_patientname'], filter: `and_name eq '${safe}'`, top: 2 } as any))
   if (patients.length > 1) throw new Error('Multiple inpatients have this exact code. Please correct the duplicate Inpatient List records.')
@@ -3544,48 +4064,40 @@ function toNumeric(value: any) {
   return Number.isFinite(next) ? next : 0
 }
 
-async function retrieveSystemUserViaXrm(filter: string) {
-  const api = getXrmWebApi()
-  if (!api) return null
-  const query = `?$select=fullname,systemuserid,domainname,internalemailaddress,azureactivedirectoryobjectid&$filter=${filter}&$top=1`
-  const result = await api.retrieveMultipleRecords('systemuser', query)
-  return result?.entities?.[0] || null
+
+// Patient sources per area. `bu` is the column holding the hospital (business unit) label, so a report
+// only finds patients of its own hospital. The KSA sources (OPD KSA, IPD KSA) are offered for AHJ only.
+type PatientSource = { service: typeof Services.erVisits; id: string; name: string; codes: string[]; search: string[]; bu?: string }
+const patientSources: Record<PatientArea, PatientSource> = {
+  ER: { service: Services.erVisits, id: 'cr301_ervisitsid', name: 'cr301_patient', codes: ['cr301_patientcode'], search: ['cr301_patient', 'cr301_patientcode'], bu: 'cr301_businessunit' },
+  IPD: { service: Services.ipdPatients, id: 'ipd_patientid', name: 'ipd_patientname', codes: ['ipd_patientcode', 'ipd_externalpatientid'], search: ['ipd_patientname', 'ipd_patientcode', 'ipd_externalpatientid'], bu: 'ipd_butext' },
+  IPD_KSA: { service: Services.inpatientList, id: 'and_inpatientlistid', name: 'and_patientname', codes: ['and_name'], search: ['and_patientname', 'and_name'] },
+  OPD_EG: { service: Services.opdPatients, id: 'opd_patientid', name: 'opd_patientname', codes: ['opd_patientcode'], search: ['opd_patientname', 'opd_patientcode'], bu: 'opd_butext' },
+  OPD_KSA: { service: Services.ksaPatients, id: 'opd_ksapatientsid', name: 'opd_newcolumn', codes: ['opd_patientcode'], search: ['opd_newcolumn', 'opd_patientcode'] },
 }
 
-function patientSchema(area: PatientArea) {
-  if (area === 'ER') return { service: Services.erVisits, entity: 'cr301_ervisits', select: ['cr301_ervisitsid', 'cr301_patient', 'cr301_patienttext', 'cr301_patientcode'], name: 'cr301_patient', fallbackName: 'cr301_patienttext', code: 'cr301_patientcode', id: 'cr301_ervisitsid', bind: 'dma_ERPatient@odata.bind', set: 'cr301_ervisitses' }
-  if (area === 'IPD') return { service: Services.ipdPatients, select: ['ipd_patientid', 'ipd_patientname', 'ipd_patientcode', 'ipd_name'], name: 'ipd_patientname', code: 'ipd_patientcode', id: 'ipd_patientid', bind: 'dma_IPDPatients@odata.bind', set: 'ipd_patients' }
-  if (area === 'IPD_KSA') return { service: Services.inpatientList, entity: 'and_inpatientlist', select: ['and_inpatientlistid', 'and_patientname', 'and_name'], name: 'and_patientname', code: 'and_name', id: 'and_inpatientlistid', bind: 'dma_IPDPatientsKSA@odata.bind', set: 'and_inpatientlists' }
-  if (area === 'OPD_KSA') return { service: Services.ksaPatients, select: ['opd_ksapatientsid', 'opd_name', 'opd_patientcode', 'opd_patientname'], name: 'opd_patientname', code: 'opd_patientcode', id: 'opd_ksapatientsid', bind: 'dma_OPDPatientKSA@odata.bind', set: 'opd_ksapatientses' }
-  return { service: Services.opdPatients, select: ['opd_patientid', 'opd_patientname', 'opd_patientcode', 'opd_name'], name: 'opd_patientname', code: 'opd_patientcode', id: 'opd_patientid', bind: 'dma_OPDPatientEG@odata.bind', set: 'opd_patients' }
-}
+type PatientMatch = { id: string; name: string; code: string; codeSource: PatientCodeSource; area: PatientArea }
 
-async function searchPatients(area: PatientArea, value: string) {
-  if (value.trim().length < 2) return []
-  const schema = patientSchema(area)
-  const safe = escapeOData(value.trim())
-  const filter = `contains(${schema.name}, '${safe}') or contains(${schema.code}, '${safe}')`
-  try {
-    let rows: any[]
-    if (schema.service) {
-      rows = list(await schema.service.getAll({ select: schema.select, filter, top: 10 } as any))
-    } else {
-      const api = getXrmWebApi()
-      if (!api || !schema.entity) throw new Error('Dataverse patient search is not available.')
-      const result = await api.retrieveMultipleRecords(schema.entity, `?$select=${schema.select.join(',')}&$filter=${filter}&$top=10`)
-      rows = result?.entities || []
+// Throws when Dataverse rejects the query, so the lookup can tell the user instead of showing "no results".
+async function searchPatients(area: PatientArea, value: string, businessUnit?: string): Promise<PatientMatch[]> {
+  const term = value.trim()
+  if (term.length < 2) return []
+  const source = patientSources[area]
+  const safe = escapeOData(term)
+  const hospital = labelFor(businessUnits, businessUnit || '')
+  const terms = `(${source.search.map((field) => `contains(${field}, '${safe}')`).join(' or ')})`
+  const filter = source.bu && hospital ? `${terms} and ${source.bu} eq '${escapeOData(hospital)}'` : terms
+  const rows = list<any>(await source.service.getAll({ select: [source.id, source.name, ...source.codes], filter, orderBy: [`${source.name} asc`], top: 15 } as any))
+  return rows.map((row) => {
+    const codeIndex = source.codes.findIndex((field) => row[field])
+    return {
+      id: row[source.id],
+      name: String(row[source.name] || '').trim(),
+      code: codeIndex >= 0 ? String(row[source.codes[codeIndex]]) : '',
+      // The first column is the patient code; a later one (e.g. ipd_externalpatientid) is the patient ID.
+      codeSource: (codeIndex > 0 ? 'id' : 'code') as PatientCodeSource,
+      area,
     }
-    return rows.map((row: any) => ({ id: row[schema.id], name: row[schema.name] || (schema.fallbackName ? row[schema.fallbackName] : '') || row.ipd_name || row.opd_name || '', code: row[schema.code] || '', area }))
-  } catch (error) {
-    console.warn('Patient lookup failed', error)
-    return []
-  }
-}
-
-function applyPatientBind(payload: any, area?: PatientArea, id?: string) {
-  if (!area || !id) return payload
-  const schema = patientSchema(area)
-  payload[schema.bind] = `/${schema.set}(${cleanId(id)})`
-  return payload
+  })
 }
 

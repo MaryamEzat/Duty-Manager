@@ -99,8 +99,12 @@ test('repeated draft reopening stays editable; submitted stale copies open revie
     setDrafts: noop, setMessage: noop, setForm: noop, setDraftId: noop, setReportId: noop,
     setFlowSummaryId: noop, setExperienceId: noop, setEvents: noop, setAdminIssues: noop,
     setOpsIssues: noop, setDamaEntries: noop, setEarlyDischarges: noop, setTab: noop,
-    setView: (view) => views.push(view),
+    setView: (view) => views.push(view), seedSavedPayloads: noop, blockedReadOnly: () => false,
   }
+  // View-only access: nothing is read, written or opened.
+  const viewOnlyOpen = loadFunction('openDraft', { ...dependencies, blockedReadOnly: () => true, Services: { reports: { get: async () => assert.fail('read'), update: async () => assert.fail('write') } } })
+  await viewOnlyOpen({ reportId: 'report-1', draftId: 'draft-1' })
+  assert.deepEqual(views, [])
   const open = loadFunction('openDraft', dependencies)
   const draft = { reportId: 'report-1', draftId: 'draft-1' }
   for (let i = 0; i < 3; i++) await open(draft)

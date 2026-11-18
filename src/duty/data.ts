@@ -50,6 +50,7 @@ export type FormState = {
   nicuUtilization: number
   cxUtilization: number
   strokeUtilization: number
+  erUtilization: number
   delayedDischargesNarrative: string
   prolongedERNarrative: string
   complaintsCount: number
@@ -60,13 +61,19 @@ export type FormState = {
   govSummary: string
   nightMedicalMeeting: string
   nightSummary: string
+  // Night shift: occupied beds per unit, used to calculate the utilization percentages (not stored in Dataverse).
+  occupiedBeds?: Partial<Record<UtilizationUnit, number>>
 }
 
+export type UtilizationUnit = 'ward' | 'icu' | 'ccu' | 'picu' | 'nicu' | 'cpu' | 'stroke' | 'er'
+
 export type PatientArea = 'ER' | 'IPD' | 'IPD_KSA' | 'OPD_EG' | 'OPD_KSA'
-export type EventItem = { id: string; typeId: string; typeText: string; codeId: string; codeText: string; severity: Severity; desc: string; actions: string; area?: PatientArea; pName?: string; pCode?: string; pId?: string; dataverseId?: string }
-export type AdminIssue = { id: string; catId: string; catLabel: string; status: Resolution; desc: string; action: string; pendingDetails: string; area?: PatientArea; pName?: string; pCode?: string; pId?: string; carrySource?: string; dataverseId?: string }
+// 'id' = the source has no patient code for this patient, so its patient ID is shown instead.
+export type PatientCodeSource = 'code' | 'id'
+export type EventItem = { id: string; loggedAt?: string; typeId: string; typeText: string; codeId: string; codeText: string; severity: Severity | ''; desc: string; actions: string; area?: PatientArea; pName?: string; pCode?: string; pCodeSource?: PatientCodeSource; pId?: string; dataverseId?: string }
+export type AdminIssue = { id: string; catId: string; catLabel: string; status: Resolution; desc: string; action: string; pendingDetails: string; area?: PatientArea; pName?: string; pCode?: string; pCodeSource?: PatientCodeSource; pId?: string; carrySource?: string; dataverseId?: string }
 export type OpsIssue = { id: string; funcId: string; affectedId: string; issueId: string; statusId: Resolution; desc: string; pendingDetails: string; carrySource?: string; dataverseId?: string }
-export type DamaEntry = { id: string; damaType: 'ER' | 'INP' | 'Closed'; patientName: string; patientCode: string; reason: string; actionTaken: string; retained: boolean; area?: PatientArea; pId?: string; dataverseId?: string }
+export type DamaEntry = { id: string; damaType: 'ER' | 'INP' | 'Closed'; patientName: string; patientCode: string; reason: string; actionTaken: string; retained: boolean; area?: PatientArea; pId?: string; pCodeSource?: PatientCodeSource; dataverseId?: string }
 export type EarlyDischarge = { id: string; area: PatientArea; name: string; code: string; patientId: string; type: 'Planned' | 'Early'; reason: string }
 export type DraftRecord = FormState & { draftId: string; reportId: string; flowSummaryId: string; experienceId?: string; events: EventItem[]; adminIssues: AdminIssue[]; opsIssues: OpsIssue[]; damaEntries: DamaEntry[]; earlyDischarges?: EarlyDischarge[]; timestamp: string }
 
@@ -93,6 +100,9 @@ export const Services = {
   earlyDischargePatients: crossEnvTable('and_earlydischarge_ipdvisitses'),
   inpatientList: crossEnvTable('and_inpatientlists'),
   patientDischarges: crossEnvTable('crad2_patientdischarges'),
+  facilityCapacities: crossEnvTable('dma_facilitycapacities'),
+  // Standard Dataverse table: security roles (logical name role, entity set roles), read from DT New.
+  roles: crossEnvTable('roles'),
 }
 
 export const Models = {

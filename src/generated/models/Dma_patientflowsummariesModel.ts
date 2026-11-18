@@ -38,6 +38,7 @@ export interface Dma_patientflowsummariesBase {
   dma_erdama?: number;
   dma_erdamaretention?: number;
   dma_ervolume?: number;
+  dma_erutilization?: number;
   dma_icuutilization?: number;
   dma_inpdama?: number;
   dma_inpdamaretention?: number;

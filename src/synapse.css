@@ -1,0 +1,1530 @@
+/*
+ * Synapse design layer: matches the Talent Acquisition app (same Synapse suite).
+ * Loaded last. Presentation only: no markup, handlers or data change. It re-points the Pulse tokens
+ * (pulse.css) at the Synapse palette, then restyles the shell and the few components with fixed colours.
+ */
+
+:root {
+  /* ── Brand: Synapse teal replaces Pulse gold ── */
+  --brand-gold-600:   #0b3f35;
+  --gold-dark:        #126e5c;
+  --gold-light:       #2fc99c;
+  --brand-gold:       #126e5c;
+  --brand-gold-400:   #2fc99c;
+  --brand-gold-300:   #a7e3cf;
+  --brand-gold-100:   #ecf8f3;
+
+  --green-dark:       #047857;
+  --brand-green:      #126e5c;
+  --brand-green-700:  #0b3f35;
+  --brand-green-400:  #6cc2a8;
+  --brand-green-200:  #c9eee0;
+  --brand-green-100:  #f1f5f9;
+
+  /* ── Neutrals (slate) ── */
+  --ink:              #1e293b;
+  --brand-black:      #1e293b;
+  --neutral-500:      #64748b;
+  --neutral-400:      #cbd5e1;
+  --neutral-300:      #e2e8f0;
+  --neutral-200:      #f1f5f9;
+
+  --canvas:           #eef4f2;
+  --surface:          #ffffff;
+  --surface-hover:    #f6faf8;
+  --border:           #e2e8f0;
+  --border-hover:     #cbd5e1;
+
+  --text-primary:     #1e293b;
+  --text-body:        #475569;
+  --muted:            #64748b;
+  --dim:              #94a3b8;
+
+  /* ── Status ── */
+  --success:          #047857;
+  --warning:          #b45309;
+  --danger:           #dc2626;
+  --info:             #1d4ed8;
+  --alert:            #dc2626;
+  --alert-soft:       #fef2f2;
+  --amber:            #b45309;
+  --amber-soft:       #fef3c7;
+
+  --gold-soft:        #d9f3ea;
+  --green-soft:       #ecfdf5;
+  --danger-soft:      #fef2f2;
+  --warn-soft:        #fef3c7;
+  --info-soft:        #eff6ff;
+  --gold-glow:        rgba(18, 110, 92, 0.22);
+  --green-glow:       rgba(4, 120, 87, 0.22);
+
+  /* Synapse buttons and fills are flat; the gradient tokens keep their names for the existing rules. */
+  --grad-gold:        linear-gradient(0deg, #126e5c, #126e5c);
+  --grad-gold-dk:     linear-gradient(135deg, #0b3f35 0%, #126e5c 100%);
+  --grad-green:       linear-gradient(135deg, #126e5c 0%, #2fc99c 100%);
+  --grad-green-dk:    linear-gradient(135deg, #0b3f35 0%, #126e5c 100%);
+  --grad-nav:         linear-gradient(0deg, #ffffff, #ffffff);
+  --grad-sidebar:     linear-gradient(0deg, #ffffff, #ffffff);
+  --grad-track:       linear-gradient(90deg, #126e5c, #2fc99c);
+  --grad-card:        linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(247, 251, 249, 0.58));
+
+  /* ── Sidebar: light Synapse side navigation ── */
+  --sidebar-text:        #1e293b;
+  --sidebar-text-active: #126e5c;
+  --sidebar-label:       #64748b;
+  --sidebar-active-bg:   #d9f3ea;
+
+  /* ── Typography: Urbanist throughout, numbers tabular ── */
+  --sans: 'Urbanist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --body: 'Urbanist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
+
+  --r-sm:   8px;
+  --r-md:  12px;
+  --r-lg:  16px;
+  --r-xl:  20px;
+
+  --shadow-sm:   0 8px 21px rgba(35, 69, 61, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --shadow-md:   0 13px 28px rgba(82, 82, 100, 0.11);
+  --shadow-lg:   0 18px 44px rgba(42, 74, 67, 0.16);
+  --shadow-gold: 0 6px 18px rgba(18, 110, 92, 0.24);
+
+  --syn-focus:   0 0 0 3px rgba(18, 110, 92, 0.16);
+  --syn-glass:   rgba(255, 255, 255, 0.62);
+  --syn-line:    rgba(48, 78, 71, 0.094);
+
+  /* Talent Acquisition surfaces (.exp020-glass panel and .exp020-glassbody list area). */
+  --syn-panel-bg:      rgba(255, 255, 255, 0.62);
+  --syn-panel-border:  rgba(255, 255, 255, 0.82);
+  --syn-panel-shadow:  0 13px 28px rgba(82, 82, 100, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  --syn-body-bg:       rgba(255, 255, 255, 0.86);
+  --syn-body-border:   rgba(232, 232, 239, 0.8);
+  --syn-body-shadow:   0 5px 14px rgba(80, 81, 98, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* ─────────────────────────── Page background and type ─────────────────────────── */
+
+html, body, #root {
+  font-family: var(--body);
+}
+
+/* Background: the Talent Acquisition layers, top to bottom, as rendered there:
+   .app-content (3 layers) → .app-shell (4 layers) → main.page-stage (5 layers). Mostly near-white, a mint glow at
+   the lower left, white haze at the top, faint lilac on the right and gold at the bottom right. Fixed to the
+   window like the reference, where only the content area scrolls. */
+html { background-color: #e7efec; }
+
+body {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+  background-color: #f1f1f4;
+  background-image:
+    /* .app-content */
+    radial-gradient(92vw 68vh at 5% 108%, rgba(44, 202, 156, 0.055), transparent 78%),
+    radial-gradient(54vw 46vh at 72% 104%, rgba(210, 168, 79, 0.024), transparent 76%),
+    linear-gradient(rgba(255, 255, 255, 0.02), rgba(216, 234, 227, 0.027)),
+    /* .app-shell */
+    radial-gradient(96vw 72vh at 5% 108%, rgba(47, 204, 157, 0.094), transparent 77%),
+    radial-gradient(70vw 62vh at 49% -8%, rgba(255, 255, 255, 0.64), transparent 75%),
+    radial-gradient(42vw 54vh at 105% 45%, rgba(139, 106, 211, 0.035), transparent 76%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(224, 240, 233, 0.043)),
+    /* main.page-stage */
+    radial-gradient(128vw 92vh at 8% 112%, rgba(47, 201, 156, 0.2), transparent 74%),
+    radial-gradient(104vw 92vh at 48% -9%, rgba(255, 255, 255, 0.98), transparent 73%),
+    radial-gradient(62vw 72vh at 108% 36%, rgba(137, 104, 211, 0.075), transparent 76%),
+    radial-gradient(48vw 42vh at 78% 108%, rgba(211, 169, 82, 0.06), transparent 74%),
+    linear-gradient(0deg, #e8f4ef, #f1f7f4 38%, #fafbf9 68%, #f6f2fa 88%, #fbf8f0);
+  background-attachment: fixed;
+}
+
+.dm-app { background: transparent; }
+
+/* main.page-stage::before: soft-light glow layer (opacity .48), fixed behind everything. */
+.dm-app::before {
+  content: "";
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  pointer-events: none;
+  opacity: 0.48;
+  mix-blend-mode: soft-light;
+  color: transparent;
+  background:
+    radial-gradient(112vw 76vh at 16% 108%, rgba(40, 213, 162, 0.2), transparent 76%),
+    radial-gradient(76vw 68vh at 57% 22%, rgba(255, 255, 255, 0.66), transparent 78%),
+    radial-gradient(44vw 52vh at 101% 57%, rgba(135, 101, 207, 0.043), transparent 75%),
+    radial-gradient(34vw 28vh at 72% 96%, rgba(210, 168, 79, 0.035), transparent 76%);
+}
+
+/* .app-shell::before: the faint teal dot grid at the top right. */
+.dm-app::after {
+  content: "";
+  display: block;
+  position: fixed;
+  top: 84px;
+  right: -90px;
+  bottom: auto;
+  left: auto;
+  z-index: -1;
+  width: 470px;
+  height: 300px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  pointer-events: none;
+  opacity: 0.1;
+  background: radial-gradient(circle, rgba(18, 110, 92, 0.55) 0, rgba(18, 110, 92, 0.55) 1px, transparent 1.5px) 0 0 / 24px 24px;
+}
+
+/* .ambient-one / .ambient-two: blurred mint (lower left) and gold (top right) orbs. */
+#root::before,
+#root::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+#root::before { left: -180px; bottom: -170px; width: 420px; height: 420px; background: rgba(55, 232, 166, 0.1); opacity: 0.08; }
+#root::after { top: -140px; right: -130px; width: 380px; height: 380px; background: rgba(229, 182, 82, 0.18); opacity: 0.2; }
+
+/* Fixed-number displays keep aligned digits without the monospace face. */
+.dashboard-kpi strong, .command-pipeline b, .metric-cluster b, .timeline-row time, .retention-summary-item b,
+.textarea-count, .top-context span:nth-child(2) b {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+h1, h2, h3, h4 { color: var(--text-primary); }
+
+/* Section labels: Synapse uses sentence-case labels, not small capitals. */
+.eyebrow,
+.identity-card-head span,
+.page-title .eyebrow,
+.readiness-panel .eyebrow,
+.surface-head p,
+.admin-metrics small,
+.ops-summary small,
+.experience-summary small,
+.summary-hero small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-body);
+}
+
+.field > span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+/* ─────────────────────────── Side navigation ─────────────────────────── */
+
+.app-rail {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(42, 74, 67, 0.06);
+  color: var(--sidebar-text);
+}
+
+/* Logo tile: dark teal like the Synapse suite mark. */
+.app-rail .dm-mark {
+  background: linear-gradient(145deg, #0f5446, #0b3f35);
+  color: #9cffdc;
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 8px 18px rgba(11, 63, 53, 0.28);
+  letter-spacing: 0.5px;
+}
+
+.app-rail button {
+  color: var(--sidebar-text);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 520;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-rail button .nav-icon { color: var(--muted); }
+
+.app-rail button:hover {
+  color: var(--text-primary);
+  background: #f1f7f5;
+}
+
+.app-rail button.active,
+.app-rail button.active:hover {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-text-active);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.app-rail button.active .nav-icon { color: var(--sidebar-text-active); }
+
+.app-rail.report-open button:nth-of-type(3)::before {
+  color: var(--sidebar-label);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-rail hr { border-color: var(--border); }
+
+/* ─────────────────────────── Top bar ─────────────────────────── */
+
+.app-header,
+.top,
+.top.workflow-top {
+  background: linear-gradient(110deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.22));
+  border-bottom: 1px solid rgba(37, 80, 71, 0.08);
+  box-shadow: 0 8px 24px rgba(42, 74, 67, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(14px);
+  color: var(--text-primary);
+}
+
+.app-header h1,
+.home-breadcrumb h1 {
+  font-family: var(--sans);
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 700;
+  color: #25332f;
+  letter-spacing: 0;
+}
+
+.home-breadcrumb, .home-breadcrumb span { color: var(--muted); font-family: var(--sans); }
+.app-header-title p { color: var(--text-body); font-size: 13px; }
+
+.app-header .home-bell,
+.home-bell {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(49, 73, 67, 0.11);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-primary);
+  box-shadow: 0 6px 15px rgba(90, 89, 110, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.app-header .home-bell:hover,
+.home-bell:hover { background: var(--surface); color: var(--brand-gold); }
+
+.app-header .home-bell b,
+.home-bell b { background: var(--danger); color: var(--surface); }
+
+.app-header .home-user,
+.home-user {
+  border: 1px solid rgba(49, 73, 67, 0.11);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 6px 15px rgba(90, 89, 110, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.home-avatar { background: var(--gold-soft); color: var(--brand-gold); font-weight: 700; }
+.app-header .home-user-text strong, .home-user-text strong { color: var(--text-primary); font: 600 13px var(--sans); }
+.app-header .home-user-text small, .home-user-text small { color: var(--muted); font: 400 12px var(--body); }
+
+/* Report header (business unit / shift / duty manager) */
+.top .brand, .top .brand strong { color: var(--text-primary); }
+.top .brand span { background: var(--gold-soft); color: var(--brand-gold); }
+.top .brand small { color: var(--muted); }
+.top-context small { color: var(--muted); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+.top-context b { color: var(--text-primary); }
+.top .attention-chip, .top .alert-button {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(49, 73, 67, 0.11);
+  border-radius: 999px;
+}
+
+/* ─────────────────────────── Cards ─────────────────────────── */
+/* Three surfaces, as in Talent Acquisition:
+   - panel (section.premium-panel.exp020-glass): translucent white, white edge, soft violet-grey shadow;
+   - tile (KPI article): white-to-mint gradient, faint teal-grey edge, small shadow;
+   - inner body (.exp020-glassbody): near-white list area inside a panel. */
+
+.card, .alert-feed-shell, .post-card,
+.aging-board-card, .carry-register,
+.current-register, .dama-unit, .dashboard-filter-card, .draft-strip,
+.early-discharge-card, .event-card, .event-timeline, .executive-queue,
+.experience-card, .experience-register, .handover-ledger,
+.identity-card, .info-panel, .intervention-panel, .issue-register,
+.network-table-card, .night-util-card, .readiness-panel, .report-modal-summary,
+.report-surface, .retention-watch-card, .submitted-notifications, .submitted-summary,
+.summary-carry-card, .summary-hero, .summary-readiness, .theatre-flow-card,
+.home-hero, .kpi-scorecard, .ack-gate {
+  background: var(--syn-panel-bg);
+  border: 1px solid var(--syn-panel-border);
+  border-radius: 16px;
+  box-shadow: var(--syn-panel-shadow);
+}
+
+.admin-metrics, .bu-status-card, .command-signal-grid, .dashboard-kpi, .event-summary-strip,
+.experience-summary, .flow-status-strip, .metric, .metric-tile, .ops-summary, .util-tile {
+  background: var(--grad-card);
+  border: 1px solid var(--syn-line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Inner surfaces sit on the panel like the reference's list body. */
+.draft-unit {
+  background: var(--syn-body-bg);
+  border: 1px solid var(--syn-body-border);
+  border-radius: 12px;
+  box-shadow: var(--syn-body-shadow);
+}
+
+.draft-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.draft-card.current { border-color: rgba(18, 110, 92, 0.45); background: #f6fcfa; }
+.draft-unit.has-current { border-color: rgba(18, 110, 92, 0.28); }
+
+/* No coloured edge on panels (the reference keeps accent bars for KPI tiles only). */
+.home-hero, .ack-gate { border-left: 1px solid var(--syn-panel-border); border-top: 1px solid var(--syn-panel-border); }
+.current-row.lead { border-left-color: #126e5c; }
+
+/* Panel titles: .home-panel-title h2 (600 16/24, slate 800) and its line (13/20, slate 600). */
+.dm-app .home-section-head h2,
+.readiness-panel > .eyebrow,
+.draft-strip > .eyebrow {
+  margin: 0;
+  font: 600 16px/24px var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: #1e293b;
+}
+
+.dm-app .home-section-head p { margin: 0; font: 400 13px/20px var(--sans); color: #475569; }
+.dm-app .home-section-head { margin: 18px 0 10px; }
+
+/* Dark summary panels: Synapse deep teal. */
+.transfer-state,
+.takeover-state,
+.command-intervention {
+  background: var(--grad-green-dk);
+  color: #ffffff;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* ─────────────────────────── Buttons ─────────────────────────── */
+
+.btn {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-body);
+  box-shadow: none;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.btn.primary,
+.btn.primary:hover:not(:disabled),
+.btn.hero-start,
+.btn.summary-submit-btn {
+  background: var(--brand-gold);
+  border: 1px solid var(--brand-gold);
+  color: #ffffff;
+}
+
+.btn.primary:hover:not(:disabled),
+.btn.summary-submit-btn:hover:not(:disabled) {
+  background: #0f5f50;
+  border-color: #0f5f50;
+  box-shadow: var(--shadow-gold);
+}
+
+.btn.primary:disabled { background: #9fc9bd; border-color: #9fc9bd; color: #ffffff; opacity: 1; }
+
+.btn.danger {
+  background: var(--danger-soft);
+  border-color: #fecaca;
+  color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+
+.btn.small { border-radius: var(--r-sm); font-size: 13px; }
+
+.btn:focus-visible, .app-rail button:focus-visible, .home-bell:focus-visible {
+  outline: 2px solid var(--brand-gold);
+  outline-offset: 2px;
+}
+
+.icon-close {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-body);
+}
+
+.icon-close:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+/* ─────────────────────────── Form fields ─────────────────────────── */
+
+input, select, textarea {
+  font-family: var(--body);
+  font-size: 14px;
+  color: var(--text-primary);
+  border: 1px solid var(--neutral-400);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+input:hover:not(:disabled):not([readonly]), select:hover:not(:disabled), textarea:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--brand-gold);
+  box-shadow: var(--syn-focus);
+}
+
+/* Custom dropdowns and calendars (PulseSelect / PulseDate). */
+.pulse-select-trigger, .pulse-date-trigger, .pulse-select > button, .pulse-date > button {
+  border-color: var(--neutral-400);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--body);
+}
+
+.pulse-select-list, .pulse-calendar {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.pulse-select-list [role="option"][aria-selected="true"],
+.pulse-select-list [role="option"]:hover { background: var(--gold-soft); color: var(--brand-gold); }
+
+.pulse-calendar-grid button[aria-selected="true"],
+.pulse-calendar-grid .selected { background: var(--brand-gold); color: #ffffff; }
+
+/* ─────────────────────────── Status tags ─────────────────────────── */
+
+.status-token {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+}
+
+.status-token.ok       { background: var(--green-soft); color: var(--success); }
+.status-token.warning  { background: var(--warn-soft);  color: #d97706; }
+.status-token.info     { background: var(--info-soft);  color: #2563eb; }
+.status-token.critical { background: var(--danger-soft); color: var(--danger); }
+
+/* ─────────────────────────── Tables ─────────────────────────── */
+
+table th,
+.kpi-scorecard thead th,
+.recent-table-head, .report-table-head, .handover-ledger-head {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+  background: var(--neutral-200);
+  border-color: var(--border);
+}
+
+table td { color: #334155; border-color: var(--border); }
+table tbody tr:hover td { background: #f8fbfa; }
+
+.sort-header { font-family: var(--sans); text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.sort-header.active { color: var(--brand-gold); }
+
+/* ─────────────────────────── Tabs and filter chips ─────────────────────────── */
+
+.nav-tabs button, .alert-switch button {
+  font-family: var(--sans);
+  border-radius: var(--r-sm);
+  color: var(--text-body);
+}
+
+.nav-tabs button.active, .alert-switch button.active {
+  background: var(--surface);
+  color: var(--brand-gold);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.timeline-filter { border-radius: 9px; font-size: 13px; }
+.timeline-filter.active { box-shadow: none; }
+
+/* ─────────────────────────── Modals, drawers, toasts ─────────────────────────── */
+
+.modal, .flow-popup-backdrop, .confirm-overlay, .drawer-backdrop {
+  background: rgba(15, 35, 30, 0.32);
+  backdrop-filter: blur(3px);
+}
+
+.modal-content, .report-modal, .flow-popup, .confirm-box, .alert-drawer {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.alert-drawer { border-radius: var(--r-xl) 0 0 var(--r-xl); }
+
+.report-modal-head, .report-modal-actions, .modal-title-row {
+  background: transparent;
+  border-color: var(--border);
+}
+
+.toast-rack .toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand-gold);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.toast-rack .toast-success { border-left-color: var(--success); }
+.toast-rack .toast-alert { border-left-color: var(--danger); }
+
+/* ─────────────────────────── Progress and readiness ─────────────────────────── */
+
+.readiness-bar { background: var(--neutral-300); border-radius: 999px; }
+.readiness-bar i { background: var(--brand-gold); border-radius: 999px; }
+
+/* ─────────────────────────── Access and loading screens ─────────────────────────── */
+
+.access-gate, .startup-loading, .startup-error { background: transparent; color: var(--text-primary); font-family: var(--body); }
+.access-gate-card {
+  background: var(--grad-card);
+  border: 1px solid var(--syn-line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-md);
+}
+
+/* ─────────────────────────── Labels: sentence case, no letter-spacing ─────────────────────────── */
+/* Same selectors as the older layers' uppercase rules, so these win by order. */
+
+.compact-drafts h3, .recent-title, .dashboard-meta-bar, .dashboard-kpi div, .metric span,
+.report-print-meta small, .report-modal-summary small, .surface-head p, .report-metric small, .surface-subhead,
+.workflow-top .top-context small, .home-hero .eyebrow, .readiness-panel .eyebrow, .draft-strip .eyebrow,
+.current-metric small, .readiness-panel > small, .ledger-head, .page-title .eyebrow, .identity-card-head span,
+.admin-metrics small, .ops-summary small, .experience-summary small, .summary-hero small, .transfer-state span,
+.carry-row small, .issue-head, .flow-status-cell small, .theatre-exceptions small, .retention-head, .auto-source-pill,
+.theatre-stage small, .night-util-tile small, .ops-timeline-row small, .admin-timeline-row small,
+.missing-fields-panel span, .transfer-head h2, .submitted-hero small, .submitted-summary small,
+.report-modal-head .eyebrow, .report-transfer-head span, .flow-popup-section, .flow-popup-field, .flow-popup-stack .field,
+.command-head .eyebrow, .command-intervention .eyebrow, .executive-queue .eyebrow, .signal-card small, .network-head,
+.executive-queue th, .summary-submit-bar small, .command-controls label span, .network-row > b::before,
+.executive-queue td::before, .timeline-row > div:nth-of-type(1) small, .tl-field span, .alert-lines dt, .scope-label,
+.recent-filter strong, .report-group h4, .alert-section-title, .carry-label, .brand strong, .brand small,
+.workflow-top .brand strong, h2, .field {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Small labels grow a little now that they are no longer capitals. */
+.report-modal-summary small, .surface-head p, .report-metric small, .surface-subhead, .workflow-top .top-context small,
+.home-hero .eyebrow, .readiness-panel .eyebrow, .draft-strip .eyebrow, .current-metric small, .readiness-panel > small,
+.page-title .eyebrow, .identity-card-head span, .admin-metrics small, .ops-summary small, .experience-summary small,
+.summary-hero small, .transfer-state span, .carry-row small, .flow-status-cell small, .theatre-exceptions small,
+.retention-head, .theatre-stage small, .night-util-tile small, .ops-timeline-row small, .admin-timeline-row small,
+.submitted-hero small, .submitted-summary small, .report-modal-head .eyebrow, .report-transfer-head span,
+.flow-popup-section, .command-head .eyebrow, .command-intervention .eyebrow, .executive-queue .eyebrow, .signal-card small,
+.summary-submit-bar small, .command-controls label span, .tl-field span, .alert-lines dt, .scope-label,
+.recent-filter strong, .alert-section-title, .carry-label, .dashboard-kpi div, .metric span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Section labels above cards: Synapse group label (slate, not brand-coloured). */
+.home-hero .eyebrow, .readiness-panel .eyebrow, .draft-strip .eyebrow, .page-title .eyebrow, .report-modal-head .eyebrow,
+.command-head .eyebrow, .executive-queue .eyebrow, .recent-filter strong, .command-controls label span {
+  font-size: 13px;
+  color: var(--text-body);
+}
+
+/* ─────────────────────────── Table and list headers ─────────────────────────── */
+
+.ledger-head, .issue-head, .network-head, .executive-queue thead, .executive-queue th, .retention-head {
+  background: var(--neutral-200);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  border-color: var(--border);
+}
+
+.ledger-head .sort-header, .ledger-head span { font-size: 14px; color: var(--text-primary); }
+.ledger-head .sort-header.active { color: var(--brand-gold); }
+
+.report-row:hover { background: #f8fbfa; box-shadow: 0 5px 16px rgba(35, 69, 61, 0.06); }
+
+/* ─────────────────────────── Former cream / bronze fills ─────────────────────────── */
+
+.tabs { background: var(--neutral-200); border-color: var(--border); }
+
+.draft-box { background: #f6fcfa; border-color: var(--border); border-left-color: var(--brand-gold); }
+
+.event-summary-strip > div:last-child, .admin-metrics > div:last-child, .ops-summary > div:last-child,
+.experience-summary > div:last-child, .summary-hero > div:last-child, .flow-status-cell:last-child,
+.submitted-summary > div:last-child, .report-modal-summary > div:last-child, .signal-card.soft {
+  background: #f3faf7;
+}
+
+.modal-content.form-modal .modal-actions, .flow-update-popup > .flow-popup-actions {
+  background: #f8fafc;
+  border-top-color: var(--border);
+  box-shadow: 0 -8px 20px rgba(35, 69, 61, 0.05);
+}
+
+.timeline-row::before { background: var(--neutral-400); }
+.flow-arrow { background: var(--brand-gold-300); }
+.net-flow { border-top-color: var(--brand-gold-300); }
+
+.attention-chip { border-color: #fde68a; background: var(--warn-soft); color: var(--warning); }
+
+.er-dashboard-link { border-color: #a7e3cf; background: var(--gold-soft); color: var(--brand-gold); }
+.night-status-chip { border-color: var(--border); background: #f3faf7; color: var(--text-body); }
+.previous-placeholder.has-carry, .section-bubble.carry-badge { border-color: #a7e3cf; background: #f3faf7; color: var(--brand-gold); }
+
+.flow-shortage-panel { border-color: var(--border); background: var(--surface); }
+.flow-shortage-panel .shortage-bubble.active { background: var(--gold-soft); border-color: var(--brand-gold); color: var(--brand-gold); }
+
+.summary-submit-bar { border-color: var(--border); background: var(--grad-card); }
+
+/* Light text on the deep teal panels. */
+.priority-item span, .signal-card.dark small, .intervention-item button, .takeover-state .eyebrow,
+.intervention-panel .eyebrow, .transfer-state div:first-of-type b { color: #9cffdc; }
+
+
+.carry-label { background: var(--neutral-200); color: var(--text-body); }
+
+/* Secondary outline buttons in the Command Center follow the Synapse secondary style. */
+.btn.export-report { border-color: var(--border); color: var(--text-body); background: var(--surface); }
+.btn.export-report:hover:not(:disabled) { border-color: var(--brand-gold); color: var(--brand-gold); }
+
+/* ─────────────────────────── Popup headers ─────────────────────────── */
+
+.form-modal .modal-title-row,
+.modal-content.form-modal .modal-title-row,
+.flow-popup .flow-popup-head,
+.flow-update-popup .flow-popup-head,
+.flow-update-popup > .flow-popup-head {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.form-modal .modal-title-row h3, .flow-popup-head h2 { font-family: var(--sans); font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.flow-popup-head p { color: var(--text-body); }
+
+/* Coloured top edge on popups (event / admin / ops tones) stays; the default edge is brand teal. */
+.form-modal { border-top-color: var(--modal-tone, var(--brand-gold)); }
+
+/* ─────────────────────────── Report page header ─────────────────────────── */
+
+.workflow-top .brand strong {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+}
+
+.brand strong::after,
+.workflow-top .brand strong::after {
+  content: " / Operations handover";
+  font-weight: 500;
+  color: var(--text-body);
+}
+
+/* ─────────────────────────── Deep teal panels: readable labels ─────────────────────────── */
+
+.transfer-state span, .transfer-state div span, .takeover-state span, .report-transfer-head span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.transfer-state b, .takeover-state b { color: #ffffff; }
+.transfer-state div { border-color: rgba(255, 255, 255, 0.16); }
+
+/* Command Center pipeline strip (Expected → Submitted → Acknowledged → Action required). */
+.command-pipeline {
+  background: var(--grad-card);
+  border: 1px solid var(--syn-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ═══════════════════════════ Synapse shell, pass 2: top bar, side navigation, KPI cards ═══════════════════════════ */
+
+:root {
+  --syn-ico-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E");
+  --syn-ico-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E");
+  --syn-ico-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11.1V12a9 9 0 1 1-5.3-8.2'/%3E%3Cpath d='m9 11 3 3L21 5'/%3E%3C/svg%3E");
+  --syn-ico-list: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='3' width='16' height='18' rx='2'/%3E%3Cpath d='M8 8h8M8 12h8M8 16h5'/%3E%3C/svg%3E");
+  --syn-ico-users: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'/%3E%3C/svg%3E");
+  --syn-ico-activity: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 12h-4l-3 9L9 3l-3 9H2'/%3E%3C/svg%3E");
+  --syn-ico-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
+  --syn-ico-send: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m22 2-7 20-4-9-9-4z'/%3E%3Cpath d='M22 2 11 13'/%3E%3C/svg%3E");
+  --syn-ico-shield: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E");
+  --syn-ico-message: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
+  --syn-ico-chart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='4'/%3E%3Cpath d='M8 16v-4M12 16V8M16 16v-6'/%3E%3C/svg%3E");
+  --syn-ico-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6'/%3E%3C/svg%3E");
+}
+
+/* ─────────────────────────── KPI cards (Synapse summary tiles) ─────────────────────────── */
+/* Each summary strip becomes a row of separate cards with a coloured accent bar and a tinted icon tile. */
+
+.command-signal-grid, .command-pipeline, .admin-metrics, .ops-summary, .experience-summary, .summary-hero,
+.report-modal-summary, .event-summary-strip, .flow-status-strip {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.command-signal-grid > .signal-card:nth-child(n), .command-pipeline > div:nth-child(n), .admin-metrics > div:nth-child(n),
+.ops-summary > div:nth-child(n), .experience-summary > div:nth-child(n), .summary-hero > div:nth-child(n),
+.report-modal-summary > div:nth-child(n), .event-summary-strip > div:nth-child(n), .flow-status-strip > .flow-status-cell:nth-child(n) {
+  --tone: #126e5c;
+  --tone-soft: #d9f3ea;
+  --icon: var(--syn-ico-chart);
+  position: relative;
+  min-height: 103px;
+  padding: 14px 15px 14px 68px;
+  border: 1px solid var(--syn-line);
+  border-radius: 16px;
+  background:
+    linear-gradient(var(--tone), var(--tone)) no-repeat 0 18px / 3px calc(100% - 36px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(247, 251, 249, 0.62));
+  box-shadow: 0 8px 21px rgba(35, 69, 61, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+/* Icon tile (42px, tinted) and the icon drawn in the tone colour. */
+.command-signal-grid > .signal-card::before, .command-pipeline > div::before, .admin-metrics > div::before,
+.ops-summary > div::before, .experience-summary > div::before, .summary-hero > div::before,
+.report-modal-summary > div::before, .event-summary-strip > div::before,
+.command-signal-grid > .signal-card::after, .command-pipeline > div::after, .admin-metrics > div::after,
+.ops-summary > div::after, .experience-summary > div::after, .summary-hero > div::after,
+.report-modal-summary > div::after, .event-summary-strip > div::after {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  margin-top: -21px;
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.command-signal-grid > .signal-card::before, .command-pipeline > div::before, .admin-metrics > div::before,
+.ops-summary > div::before, .experience-summary > div::before, .summary-hero > div::before,
+.report-modal-summary > div::before, .event-summary-strip > div::before { background: var(--tone-soft); }
+
+.command-signal-grid > .signal-card::after, .command-pipeline > div::after, .admin-metrics > div::after,
+.ops-summary > div::after, .experience-summary > div::after, .summary-hero > div::after,
+.report-modal-summary > div::after, .event-summary-strip > div::after {
+  background: var(--tone);
+  -webkit-mask: var(--icon) center / 19px no-repeat;
+  mask: var(--icon) center / 19px no-repeat;
+}
+
+/* Patient flow cells hold their own metric grids: accent bar only, no icon tile. */
+.flow-status-strip > .flow-status-cell:nth-child(n) { padding-left: 18px; }
+
+/* Card text: label, value, supporting line. */
+.command-signal-grid > .signal-card small, .command-pipeline > div small, .admin-metrics > div > small, .ops-summary > div > small,
+.experience-summary > div > small, .summary-hero > div > small, .report-modal-summary > div > small,
+.event-summary-strip > div > small, .flow-status-strip > .flow-status-cell > small {
+  display: block;
+  margin: 0 0 4px;
+  font: 600 13px/16px var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: #475569;
+}
+
+.command-signal-grid > .signal-card strong, .command-pipeline > div > b, .admin-metrics > div > b, .ops-summary > div > b,
+.experience-summary > div > b, .summary-hero > div > h2, .report-modal-summary > div > b, .event-summary-strip > div > b,
+.flow-status-strip > .flow-status-cell > b {
+  font: 700 24px/28px var(--sans);
+  letter-spacing: 0;
+  color: #1e293b;
+}
+
+.admin-metrics > div > b span, .event-summary-strip > div > b span, .metric-cluster b span {
+  margin-left: 6px;
+  font: 400 12px/20px var(--body);
+  color: #475569;
+}
+
+.metric-cluster b { font: 700 20px/26px var(--sans); color: #1e293b; }
+
+.command-signal-grid > .signal-card p, .admin-metrics > div > p, .ops-summary > div > p, .experience-summary > div > p,
+.summary-hero > div > p, .flow-status-strip > .flow-status-cell > p {
+  margin: 2px 0 0;
+  font: 400 12px/20px var(--body);
+  color: #475569;
+}
+
+/* Command Center signal cards: all light like the reference (the dark one included). */
+.command-signal-grid > .signal-card.dark small, .command-signal-grid > .signal-card.dark p { color: #475569; }
+.command-signal-grid > .signal-card.dark strong { color: #1e293b; }
+button.signal-card.is-clickable:hover { border-color: rgba(48, 78, 71, 0.2); transform: none; }
+button.signal-card.is-clickable:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+
+/* Pipeline: compact cards with the arrows between them. */
+.command-pipeline > div:nth-child(n) { min-height: 76px; }
+.command-pipeline > span { align-self: center; justify-self: center; color: var(--dim); }
+
+/* ── Tones and icons per card ── */
+.command-signal-grid > .signal-card:nth-child(1) { --tone: #dc2626; --tone-soft: #fef2f2; --icon: var(--syn-ico-alert); }
+.command-signal-grid > .signal-card:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-clock); }
+.command-signal-grid > .signal-card:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-send); }
+
+.command-pipeline > div:nth-child(1) { --icon: var(--syn-ico-calendar); }
+.command-pipeline > div:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-send); }
+.command-pipeline > div:nth-child(5) { --tone: #047857; --tone-soft: #ecfdf5; --icon: var(--syn-ico-check); }
+.command-pipeline > div.action:nth-child(n) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-alert); }
+
+.admin-metrics > div:nth-child(1) { --icon: var(--syn-ico-list); }
+.admin-metrics > div:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-clock); }
+.admin-metrics > div:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-users); }
+
+.ops-summary > div:nth-child(1) { --icon: var(--syn-ico-sliders); }
+.ops-summary > div:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-alert); }
+.ops-summary > div:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-users); }
+
+.experience-summary > div:nth-child(1) { --icon: var(--syn-ico-users); }
+.experience-summary > div:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-message); }
+.experience-summary > div:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-shield); }
+
+.summary-hero > div:nth-child(1) { --icon: var(--syn-ico-check); }
+.summary-hero > div:nth-child(2) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-send); }
+
+.event-summary-strip > div:nth-child(1) { --icon: var(--syn-ico-list); }
+.event-summary-strip > div:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-alert); }
+
+.report-modal-summary > div:nth-child(1) { --icon: var(--syn-ico-activity); }
+.report-modal-summary > div:nth-child(2) { --tone: #b45309; --tone-soft: #fef3c7; --icon: var(--syn-ico-alert); }
+.report-modal-summary > div:nth-child(3) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-list); }
+.report-modal-summary > div:nth-child(4) { --tone: #047857; --tone-soft: #ecfdf5; --icon: var(--syn-ico-sliders); }
+.report-modal-summary > div:nth-child(5) { --tone: #1d4ed8; --tone-soft: #eff6ff; --icon: var(--syn-ico-users); }
+
+.flow-status-strip > .flow-status-cell:nth-child(2) { --tone: #1d4ed8; }
+.flow-status-strip > .flow-status-cell:nth-child(3) { --tone: #047857; }
+.flow-status-strip > .flow-status-cell:nth-child(4) { --tone: #b45309; }
+
+/* Phones: smaller titles; the report-page subtitle is dropped to save width. */
+@media (max-width: 900px) {
+  .app-header .home-breadcrumb h1, .workflow-top .brand strong { font-size: 20px; line-height: 24px; }
+  .workflow-top .brand strong::after { content: ""; }
+}
+
+/* The "System attention" card was dark; the older rule is more specific, so match it with an extra class. */
+.command-signal-grid > button.signal-card.is-clickable.dark:nth-child(n),
+.command-signal-grid > button.signal-card.is-clickable.dark:nth-child(n):hover,
+.command-signal-grid > .signal-card.dark:nth-child(n),
+.command-signal-grid > button.signal-card.is-clickable:nth-child(n):hover {
+  border: 1px solid var(--syn-line);
+  background:
+    linear-gradient(var(--tone), var(--tone)) no-repeat 0 18px / 3px calc(100% - 36px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(247, 251, 249, 0.62));
+  color: var(--text-primary);
+}
+.command-signal-grid > .signal-card.dark:nth-child(n) small, .command-signal-grid > .signal-card.dark:nth-child(n) p { color: #475569; }
+.command-signal-grid > .signal-card.dark:nth-child(n) strong { color: #1e293b; }
+
+/* ═══════════════════════════ Synapse application shell (Talent Acquisition values) ═══════════════════════════
+   Duty Manager runs inside the shared Synapse shell, which owns the suite sidebar. This app draws only what
+   Talent Acquisition draws to the right of that sidebar: the top bar (header.topbar) and the app's own sections
+   menu (nav.exp020-sidenav), open by default and hidden or shown from the top-bar button.
+   ≥1121px: the menu is a 232px card beside the content (the content moves over, as in the reference).
+   901–1120px: it is a bar under the top bar. Phones: it is always a scrolling bar under the top bar. */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Page gutter: 16px, as between the reference's sidebar and its first card. */
+.dm-app {
+  --shell-left: 16px;
+  padding: 0 16px 48px var(--shell-left);
+  row-gap: 0;
+  column-gap: 0;
+}
+
+/* Order inside the page column: top bar, sections bar (narrow screens), then the page. */
+.dm-app > * { order: 3; }
+.dm-app > .app-header { order: 1; }
+.dm-app > .app-rail { order: 2; }
+
+.dm-app > .home-modern,
+.dm-app > .editor-shell,
+.dm-app > .dashboard,
+.dm-app > .dashboard.command-dashboard,
+.dm-app .editor-shell .workflow-page,
+.dm-app .workflow-page {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.dm-app > .home-modern,
+.dm-app > .dashboard,
+.dm-app > .dashboard.command-dashboard,
+.dm-app > .editor-shell { margin-top: 16px; }
+
+/* Pages stop growing at 1480px and sit centred in the space beside the menu, so wide screens are not filled
+   edge to edge. The top bar still spans the window. */
+.dm-app > .home-modern,
+.dm-app > .editor-shell,
+.dm-app > .dashboard,
+.dm-app > .dashboard.command-dashboard,
+.dm-app > .workflow-page {
+  max-width: 1480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ─────────────────────────── Top bar (header.topbar) ─────────────────────────── */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: auto;
+  height: 82px;
+  min-height: 82px;
+  margin: 0 -16px 0 calc(0px - var(--shell-left));
+  padding: 17px 22px 13px 19px;
+  border: 0;
+  border-bottom: 1px solid rgba(37, 80, 71, 0.08);
+  border-radius: 0;
+  background: linear-gradient(110deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.055)), rgba(255, 255, 255, 0.34);
+  box-shadow: 0 8px 24px rgba(42, 74, 67, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(18px) saturate(1.08);
+  color: #263037;
+  font: 400 14px/20px var(--sans);
+}
+
+/* .topbar-page-context */
+.app-header-lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+}
+
+.app-header-title { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+
+.app-header-title h1 {
+  margin: 0;
+  font: 700 24px/28px var(--sans);
+  letter-spacing: -0.45px;
+  text-transform: none;
+  color: #25332f;
+  white-space: nowrap;
+}
+
+/* .topbar-breadcrumb (report pages) above the app name. */
+.app-header .topbar-breadcrumb {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 2px;
+  overflow: hidden;
+  color: #7b8a85;
+  font: 650 10px/1 var(--sans);
+  white-space: nowrap;
+}
+
+.app-header .topbar-breadcrumb span,
+.app-header .topbar-breadcrumb button { overflow: hidden; text-overflow: ellipsis; }
+.app-header .topbar-breadcrumb span[aria-current="page"] { color: #37675d; }
+.app-header .topbar-breadcrumb svg { flex: 0 0 auto; width: 10px; height: 10px; fill: none; stroke: #9eaaa6; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+.app-header .topbar-breadcrumb button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-header .topbar-breadcrumb button:hover { color: #126e5c; }
+
+/* .exp020-burger-host .icon-button */
+.shell-burger {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(37, 80, 71, 0.08);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.54);
+  color: #556068;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 5px 15px rgba(42, 74, 67, 0.05);
+  cursor: pointer;
+  transition: transform 0.18s, background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+
+.shell-burger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.shell-burger:hover { background: #ffffff; color: #126e5c; }
+
+.shell-burger:focus-visible,
+.app-header button:focus-visible,
+.app-rail button:focus-visible { outline: 2px solid #126e5c; outline-offset: 2px; }
+
+/* .topbar-actions */
+.app-header-user { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+
+/* .topbar-context-action (the reference's role pill): the signed-in user's Duty Manager access. */
+.app-header .topbar-context-action {
+  min-width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid rgba(49, 73, 67, 0.11);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 6px 15px rgba(90, 89, 110, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  color: #52635e;
+  font: 600 13px/20px var(--sans);
+  white-space: nowrap;
+}
+
+.app-header .topbar-context-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* .topbar-notification-trigger */
+.app-header .home-bell {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #263037;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.app-header .home-bell svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+.app-header .home-bell b {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid rgba(246, 249, 248, 0.95);
+  border-radius: 9px;
+  background: #b55c55;
+  color: #ffffff;
+  font: 850 8px/8px var(--sans);
+  box-shadow: 0 4px 10px rgba(113, 49, 44, 0.2);
+}
+
+/* .profile-chip */
+.app-header .home-user {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 4px 4px;
+  border: 1px solid rgba(37, 80, 71, 0.08);
+  border-radius: 23px;
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 5px 15px rgba(42, 74, 67, 0.05);
+}
+
+.app-header .home-avatar {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d9f3ea;
+  color: #126e5c;
+  font: 700 12px/1 var(--sans);
+}
+
+.app-header .home-user-text { display: grid; gap: 4px; text-align: left; }
+.app-header .home-user-text strong { font: 600 13px/13px var(--sans); color: #263037; }
+.app-header .home-user-text small { font: 400 12px/12px var(--sans); color: #858993; letter-spacing: 0; text-transform: none; }
+
+/* ─────────────────────────── Sections menu (nav.exp020-sidenav) ─────────────────────────── */
+
+.app-rail,
+.app-rail.entry-only,
+.app-rail.report-open {
+  position: fixed;
+  inset: 98px auto 30px 16px;
+  z-index: 10;
+  width: 232px;
+  max-width: none;
+  height: auto;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  background:
+    radial-gradient(260px 130px at 4% 0%, rgba(130, 210, 186, 0.09), transparent 72%),
+    rgba(255, 255, 255, 0.68);
+  box-shadow: 0 13px 28px rgba(82, 82, 100, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.app-rail::before,
+.app-rail::after { content: none; }
+
+/* .exp020-sidenav-item */
+.app-rail button,
+.app-rail.entry-only button,
+.app-rail.report-open button {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  color: #1e293b;
+  font: 520 15px/20px var(--sans);
+  text-align: start;
+}
+
+.app-rail button span { display: inline; }
+.app-rail button .nav-icon { display: block; flex: 0 0 auto; width: 20px; height: 20px; margin: 0; color: #475569; }
+.app-rail button .nav-icon * { stroke-width: 1.5; }
+.app-rail button:hover { background: rgba(18, 110, 92, 0.07); color: #1e293b; }
+
+.app-rail button.active,
+.app-rail button.active:hover { background: #d9f3ea; color: #126e5c; font-weight: 600; box-shadow: none; }
+.app-rail button.active .nav-icon { color: #126e5c; }
+.app-rail button.active::after { content: none; }
+
+/* The base layer hid nth-of-type(n+3) on home pages; report links are only rendered while a report is open. */
+.app-rail.entry-only button:nth-of-type(n+3) { display: flex; }
+
+/* Hidden from the top-bar button. */
+@media (min-width: 901px) {
+  .dm-app.sections-hidden > .app-rail { display: none; }
+}
+
+/* Open on wide screens: the content moves over beside the card (16 + 232 + 16), as in the reference. */
+@media (min-width: 1121px) {
+  .dm-app:not(.sections-hidden) { --shell-left: 264px; }
+}
+
+/* ─────────────────────────── 901–1120px: the menu is a bar under the top bar ─────────────────────────── */
+
+@media (max-width: 1120px) {
+  .app-rail,
+  .app-rail.entry-only,
+  .app-rail.report-open {
+    position: relative;
+    inset: auto;
+    z-index: 1;
+    width: auto;
+    height: auto;
+    flex: 0 0 auto;
+    margin: 10px 0 0;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .app-rail button,
+  .app-rail.entry-only button,
+  .app-rail.report-open button { width: auto; height: 36px; flex: 0 0 auto; padding: 0 10px; gap: 6px; font-weight: 600; }
+}
+
+/* ─────────────────────────── Phones ─────────────────────────── */
+
+@media (max-width: 900px) {
+  .dm-app,
+  .dm-app.sections-hidden,
+  .dm-app:has(.dashboard) { --shell-left: 12px; padding: 0 12px 24px; }
+
+  .app-header {
+    height: auto;
+    min-height: 64px;
+    margin: 0 -12px;
+    padding: 12px;
+  }
+
+  /* The bar is the page navigation on phones, so it always shows and the menu button is not needed. */
+  .shell-burger { display: none; }
+  .app-header-title h1 { font-size: 18px; line-height: 22px; }
+  .app-header .topbar-breadcrumb { max-width: min(55vw, 230px); font-size: 8.5px; }
+  .app-header .topbar-breadcrumb > :not([aria-current="page"]) { display: none; }
+  .app-header .topbar-context-action { width: 38px; min-width: 38px; height: 38px; padding: 0; }
+  .app-header .topbar-context-action span { display: none; }
+  .app-header .home-user-text { display: none; }
+  .app-header .home-user { padding-right: 4px; }
+}
+
+/* Panel titles at the reference's 16px semibold. */
+.dm-app .readiness-panel > .eyebrow,
+.dm-app .draft-strip > .eyebrow { font: 600 16px/24px var(--sans); color: #1e293b; }
+
+/* ─────────────────────────── Report bar (inside a report) ─────────────────────────── */
+/* Always shown inside a report, whatever the sections menu is doing: which handover is open, its seven sections as
+   steps (the reference's segmented tabs, .ds-tabs-list) and how complete it is. Stays under the top bar on scroll. */
+
+.dm-app .editor-shell > .report-bar {
+  position: sticky;
+  top: 82px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 8px 14px 8px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 13px 28px rgba(82, 82, 100, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.report-bar-id { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; min-width: 0; }
+
+.report-bar-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #d9f3ea;
+  color: #126e5c;
+}
+
+.report-bar-icon .nav-icon { width: 20px; height: 20px; margin: 0; }
+.report-bar-icon .nav-icon * { stroke-width: 1.5; }
+.report-bar-id div { display: grid; gap: 2px; min-width: 0; }
+.report-bar-id small { font: 500 12px/14px var(--sans); color: #64748b; letter-spacing: 0; text-transform: none; }
+.report-bar-id strong { font: 600 15px/20px var(--sans); color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.report-steps {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  border-radius: 12px;
+  background: #f1f5f9;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.report-steps::-webkit-scrollbar { display: none; }
+
+.report-step {
+  flex: 1 0 auto;
+  display: flex;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: #475569;
+  font: 500 14px/20px var(--sans);
+  cursor: pointer;
+}
+
+.report-step-pill {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 9px;
+  white-space: nowrap;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+
+.report-step:hover .report-step-pill { color: #126e5c; }
+
+.report-step.active { color: #126e5c; font-weight: 700; }
+.report-step.active .report-step-pill { background: #ffffff; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08); }
+
+.report-step-num {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(71, 85, 105, 0.12);
+  color: #475569;
+  font: 700 11px/1 var(--sans);
+}
+
+.report-step.active .report-step-num { background: #126e5c; color: #ffffff; }
+
+.report-step-missing {
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #b45309;
+  font: 700 10px/1 var(--sans);
+}
+
+.report-step.locked { opacity: 0.55; }
+.report-step.locked .report-step-label::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  vertical-align: -1px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.report-step:focus-visible { outline: 2px solid #126e5c; outline-offset: -2px; }
+
+.report-bar-progress { flex: 0 0 132px; display: grid; gap: 6px; }
+.report-bar-progress span { font: 400 12px/14px var(--sans); color: #64748b; }
+.report-bar-progress b { font-weight: 700; color: #1e293b; }
+.report-bar-progress i { display: block; height: 6px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+.report-bar-progress em { display: block; height: 100%; border-radius: 3px; background: #126e5c; }
+
+/* The report's width is the window minus 32px, or minus 280px while the sections menu is open beside it (≥1121px).
+   Report under ~1260px: drop the "Handover report" caption and the word "complete" so it stays on one row.
+   Under ~1150px: identity and progress on the first row, the steps on their own row. */
+@media (max-width: 1292px) {
+  .dm-app .report-bar-id small { display: none; }
+  .dm-app .report-bar-progress { flex-basis: 64px; }
+  .dm-app .report-bar-progress span { font-size: 0; }
+  .dm-app .report-bar-progress span b { font-size: 12px; }
+  .dm-app .report-step-pill { padding: 0 8px; }
+}
+
+@media (min-width: 1121px) and (max-width: 1540px) {
+  .dm-app:not(.sections-hidden) .report-bar-id small { display: none; }
+  .dm-app:not(.sections-hidden) .report-bar-progress { flex-basis: 64px; }
+  .dm-app:not(.sections-hidden) .report-bar-progress span { font-size: 0; }
+  .dm-app:not(.sections-hidden) .report-bar-progress span b { font-size: 12px; }
+  .dm-app:not(.sections-hidden) .report-step-pill { padding: 0 8px; }
+}
+
+@media (max-width: 1182px) {
+  .dm-app .editor-shell > .report-bar { flex-wrap: wrap; row-gap: 8px; }
+  .dm-app .report-bar-id { flex: 1 1 auto; }
+  .dm-app .report-steps { order: 3; flex: 1 0 100%; }
+}
+
+@media (min-width: 1121px) and (max-width: 1430px) {
+  .dm-app:not(.sections-hidden) .editor-shell > .report-bar { flex-wrap: wrap; row-gap: 8px; }
+  .dm-app:not(.sections-hidden) .report-bar-id { flex: 1 1 auto; }
+  .dm-app:not(.sections-hidden) .report-steps { order: 3; flex: 1 0 100%; }
+}
+
+/* Phones: not pinned (it would take too much of the screen), steps scroll sideways. */
+@media (max-width: 900px) {
+  .dm-app .editor-shell > .report-bar { position: relative; top: auto; padding: 8px; }
+  .report-bar-progress { flex-basis: 96px; }
+  .report-step { flex: 0 0 auto; }
+}
+
+/* Staff coverage note in the patient flow pop-up: Adequate is the default, so say when to change it. */
+.flow-popup-hint { grid-column: 1 / -1; margin: -4px 0 0; font-size: 12.5px; font-weight: 500; line-height: 1.45; color: #5f6f6a; text-transform: none; letter-spacing: 0; }
+.flow-popup-hint b { color: #126e5c; font-weight: 700; }
